@@ -1,0 +1,21 @@
+[package]
+name = "next_client_win"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ncs = { git = "https://github.com/anotherhollow1125/next-client", rev = "86faf93df44c813395c0b788b95efcc125bf1f4c" }
+bindings = { path = "bindings" }
+windows = "0.19.0"
+anyhow = "1.0.43"
+dotenv = "0.15.0"
+env_logger = "0.9.0"
+log = "0.4.14"
+notify = "4.0.17"
+tokio = { version = "1.8.1", features = ["full"] }
+if_chain = "1.0.1"
+
+[build-dependencies]
+embed-resource = "1.6.3"
