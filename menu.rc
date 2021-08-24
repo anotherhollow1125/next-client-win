@@ -1,6 +1,0 @@
-NC_CONTROL MENU {
-    POPUP "PopuoMenu1" {
-        MENUITEM "repair" , 40001
-        MENUITEM "exit" , 40002
-    }
-}

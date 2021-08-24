@@ -6,6 +6,7 @@ fn main() {
             System::LibraryLoader::{
                 GetModuleHandleA,
             },
+            System::Console::*,
         },
     };
 }

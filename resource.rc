@@ -1,0 +1,9 @@
+ID_NC_CONTROL MENU {
+    POPUP "PopuoMenu1" {
+        MENUITEM "repair" , 40001
+        MENUITEM "exit" , 40002
+    }
+}
+ID_NC_ICON_NORMAL ICON "nc_icon_normal.ico"
+ID_NC_ICON_load ICON "nc_icon_load.ico"
+ID_NC_ICON_error ICON "nc_icon_error.ico"
