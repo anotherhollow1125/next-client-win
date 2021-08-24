@@ -243,6 +243,7 @@ async fn run(
                         &local_info,
                         &mut nc2l_cancel_map,
                         &mut l2nc_cancel_set,
+                        false,
                     )
                     .await;
                     if let Err(e) = res {
@@ -582,7 +583,7 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
     let wc = WNDCLASSA {
         hCursor: LoadCursorW(None, IDC_ARROW),
         hInstance: instance,
-        hIcon: LoadIconW(instance, "1"),
+        hIcon: LoadIconW(instance, "ICON_1"),
         lpszClassName: PSTR(b"window\0".as_ptr() as _),
 
         style: CS_HREDRAW | CS_VREDRAW,
@@ -611,11 +612,11 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
         std::ptr::null_mut(),
     );
 
-    let mut nid = create_nid(hwnd, instance, "3");
+    let mut nid = create_nid(hwnd, instance, "ICON_3");
     P_NID_ERROR = &mut nid;
-    let mut nid = create_nid(hwnd, instance, "2");
+    let mut nid = create_nid(hwnd, instance, "ICON_2");
     P_NID_LOAD = &mut nid;
-    let mut nid = create_nid(hwnd, instance, "1");
+    let mut nid = create_nid(hwnd, instance, "ICON_1");
     P_NID_NORMAL = &mut nid;
     P_NID = P_NID_NORMAL;
 

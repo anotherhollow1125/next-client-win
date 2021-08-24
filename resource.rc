@@ -4,6 +4,6 @@ ID_NC_CONTROL MENU {
         MENUITEM "exit" , 40002
     }
 }
-1 ICON "nc_normal.ico"
-2 ICON "nc_load.ico"
-3 ICON "nc_error.ico"
+ICON_1 ICON "nc_normal.ico"
+ICON_2 ICON "nc_load.ico"
+ICON_3 ICON "nc_error.ico"
