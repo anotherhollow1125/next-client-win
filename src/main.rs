@@ -581,7 +581,7 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
     let wc = WNDCLASSA {
         hCursor: LoadCursorW(None, IDC_ARROW),
         hInstance: instance,
-        hIcon: LoadIconW(instance, "ID_NC_ICON_NORMAL"),
+        hIcon: LoadIconW(instance, "1"),
         lpszClassName: PSTR(b"window\0".as_ptr() as _),
 
         style: CS_HREDRAW | CS_VREDRAW,
@@ -610,11 +610,11 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
         std::ptr::null_mut(),
     );
 
-    let mut nid = create_nid(hwnd, instance, "ID_NC_ICON_ERROR");
+    let mut nid = create_nid(hwnd, instance, "3");
     P_NID_ERROR = &mut nid;
-    let mut nid = create_nid(hwnd, instance, "ID_NC_ICON_LOAD");
+    let mut nid = create_nid(hwnd, instance, "2");
     P_NID_LOAD = &mut nid;
-    let mut nid = create_nid(hwnd, instance, "ID_NC_ICON_NORMAL");
+    let mut nid = create_nid(hwnd, instance, "1");
     P_NID_NORMAL = &mut nid;
     P_NID = P_NID_NORMAL;
 
