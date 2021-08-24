@@ -441,7 +441,8 @@ unsafe fn prepare_dotenv_file() -> Result<()> {
         "NC_HOST={}
 NC_USERNAME={}
 NC_PASSWORD={}
-LOCAL_ROOT={}",
+LOCAL_ROOT={}
+RUST_LOG=info",
         nc_host.trim(),
         nc_username.trim(),
         nc_password.trim(),
