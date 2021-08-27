@@ -699,6 +699,14 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
             }
             WM_COMMAND => {
                 match (wparam.0 as u32, lparam.0 as u32) {
+                    (MSGID_SHOWLOG, _) => {
+                        debug!("TASKTRAY SHOWLOG");
+                        open_notepad(logging::TMPLOGFILENAME);
+                    }
+                    (MSGID_EDITCONF, _) => {
+                        debug!("TASKTRAY SHOWLOG");
+                        open_notepad(config::CONFFILENAME);
+                    }
                     (MSGID_REPAIR, _) => {
                         debug!("TASKTRAY REPAIR");
                         if let Some(tx) = P_TX.as_ref() {
@@ -734,4 +742,13 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
             _ => DefWindowProcA(window, message, wparam, lparam),
         }
     }
+}
+
+fn open_notepad(filepath: &'static str) {
+    std::thread::spawn(move || {
+        std::process::Command::new("notepad")
+            .args(&[filepath])
+            .status()
+            .ok();
+    });
 }

@@ -779,6 +779,7 @@ dependencies = [
  "bindings",
  "dotenv",
  "embed-resource",
+ "fs_extra",
  "if_chain",
  "log",
  "log4rs",

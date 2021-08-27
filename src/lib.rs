@@ -243,6 +243,8 @@ pub mod logging {
     #[allow(unused)]
     use tokio::time::{sleep, Duration};
 
+    pub const TMPLOGFILENAME: &'static str = "tmp.log";
+
     pub fn prepare_logging_without_logfile(config: &config::Config) -> Result<log4rs::Handle> {
         let log_level = config.rust_log.clone();
 
@@ -253,9 +255,25 @@ pub mod logging {
             .target(Target::Stderr)
             .build();
 
+        if Path::new(TMPLOGFILENAME).exists() {
+            fs_extra::remove_items(&[TMPLOGFILENAME])?;
+        }
+
+        let tmpfile_appender = FileAppender::builder()
+            .encoder(Box::new(PatternEncoder::new(
+                "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
+            )))
+            .build(TMPLOGFILENAME)?;
+
         let config = log4rsConfig::builder()
             .appender(Appender::builder().build("stderr", Box::new(stderr)))
-            .build(Root::builder().appender("stderr").build(log_level))?;
+            .appender(Appender::builder().build("tmpfile_appender", Box::new(tmpfile_appender)))
+            .build(
+                Root::builder()
+                    .appender("stderr")
+                    .appender("tmpfile_appender")
+                    .build(log_level),
+            )?;
 
         let handle = log4rs::init_config(config)?;
 
@@ -278,6 +296,12 @@ pub mod logging {
             .target(Target::Stderr)
             .build();
 
+        let tmpfile_appender = FileAppender::builder()
+            .encoder(Box::new(PatternEncoder::new(
+                "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
+            )))
+            .build(TMPLOGFILENAME)?;
+
         let file_appender = FileAppender::builder()
             .encoder(Box::new(PatternEncoder::new(
                 "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
@@ -286,10 +310,12 @@ pub mod logging {
 
         let config = log4rsConfig::builder()
             .appender(Appender::builder().build("stderr", Box::new(stderr)))
+            .appender(Appender::builder().build("tmpfile_appender", Box::new(tmpfile_appender)))
             .appender(Appender::builder().build("file_appender", Box::new(file_appender)))
             .build(
                 Root::builder()
                     .appender("file_appender")
+                    .appender("tmpfile_appender")
                     .appender("stderr")
                     .build(log_level),
             )?;
