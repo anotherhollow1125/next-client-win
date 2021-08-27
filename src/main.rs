@@ -6,25 +6,17 @@ use bindings::Windows::Win32::{
     System::LibraryLoader::GetModuleHandleA,
     UI::{Shell::*, WindowsAndMessaging::*},
 };
-use dotenv::dotenv;
 use log::{debug, error, info, warn};
-use log4rs::append::console::{ConsoleAppender, Target};
-use log4rs::append::file::FileAppender;
-use log4rs::config::{Appender, Config, Root};
-use log4rs::encode::pattern::PatternEncoder;
 use ncs::errors::NcsError::*;
 use ncs::local_listen::*;
 use ncs::meta::*;
 use ncs::nc_listen::*;
 use ncs::network::{self, NetworkStatus};
 use ncs::*;
+use next_client_win::{config, logging};
 use notify::{watcher, RecursiveMode, Watcher};
 use std::collections::{HashMap, HashSet};
-use std::env;
-use std::fs;
-use std::io::{self, Write};
 use std::path::Path;
-use std::str::FromStr;
 use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
@@ -34,10 +26,20 @@ use tokio::time::{sleep, Duration};
 #[macro_use]
 extern crate if_chain;
 
+/*
 macro_rules! terminate_send {
     ($tx:expr) => {
         if let Err(e) = $tx.send(Command::Terminate(true)).await {
             warn!("{:?} : Reciever dropped.", e);
+        }
+    };
+}
+*/
+
+macro_rules! error_send {
+    ($tx:expr, $e:expr) => {
+        if let Err(re) = $tx.send(Command::Error($e)).await {
+            warn!("{:?} : Reciever dropped.", re);
         }
     };
 }
@@ -48,22 +50,36 @@ async fn run(
     icon_tx: std_mpsc::Sender<IconChange>,
     log_handle: &log4rs::Handle,
     _debug_counter: u32,
+    config: &config::Config,
 ) -> Result<bool> {
     icon_tx.send(IconChange::Load).ok();
 
+    match config.validation().await? {
+        config::ValidateResult::Ok => (),
+        config::ValidateResult::RootPathError => {
+            return Err(anyhow!("[config error] Please fix ROOT_PATH in conf.ini"))
+        }
+        config::ValidateResult::NetworkError => {
+            return Err(anyhow!(
+                "[config error] host, username or password are wrong or Network is disconnect.
+Please fix conf.ini and connect to the Internet."
+            ))
+        }
+    }
+
     // Can't update these environment variables by rerun.
-    let username = env::var("NC_USERNAME").expect("NC_USERNAME not found");
-    let password = env::var("NC_PASSWORD").expect("NC_PASSWORD not found");
-    let host = env::var("NC_HOST").expect("NC_HOST not found");
+    let username = config.nc_username.clone();
+    let password = config.nc_password.clone();
+    let host = config.nc_host.clone();
     let host = fix_host(&host);
 
     let nc_info = NCInfo::new(username, password, host);
 
-    let local_root_path = env::var("LOCAL_ROOT").expect("LOCAL_ROOT not found");
+    let local_root_path = config.local_root.clone();
     let local_info = LocalInfo::new(local_root_path)?;
 
     let logfile_path = local_info.get_logfile_name();
-    prepare_logging(log_handle, logfile_path)?;
+    logging::prepare_logging(log_handle, logfile_path, config)?;
 
     let public_resource: PublicResource;
     if Path::new(local_info.get_cachefile_name().as_str()).exists() {
@@ -109,26 +125,37 @@ async fn run(
     )?;
     let metaeve_rx = Mutex::new(rx);
 
+    let (tx, rx) = std_mpsc::channel();
+    let mut ini_watcher = watcher(tx, StdDuration::from_secs(5)).unwrap();
+    ini_watcher.watch(".", RecursiveMode::NonRecursive)?;
+    let ini_rx = Mutex::new(rx);
+
     let (com_tx, mut com_rx) = tokio_mpsc::channel(32);
 
     let tx = com_tx.clone();
     let lci = local_info.clone();
     let nci = nc_info.clone();
-    let watching_handle = tokio::spawn(async move {
+    let _watching_handle = tokio::spawn(async move {
         let res = watching(tx.clone(), loceve_rx, &lci, &nci).await;
         if let Err(e) = res {
-            error!("{:?}", e);
-            terminate_send!(tx);
+            error_send!(tx, e);
         }
     });
 
     let tx = com_tx.clone();
     let lci = local_info.clone();
-    let updateexcfile_handle = tokio::spawn(async move {
+    let _updateexcfile_handle = tokio::spawn(async move {
         let res = exc_list_update_watching(tx.clone(), metaeve_rx, &lci).await;
         if let Err(e) = res {
-            error!("{:?}", e);
-            terminate_send!(tx);
+            error_send!(tx, e);
+        }
+    });
+
+    let tx = com_tx.clone();
+    let _updateconfigfile_handle = tokio::spawn(async move {
+        let res = config::inifile_watching(tx.clone(), ini_rx).await;
+        if let Err(e) = res {
+            error_send!(tx, e);
         }
     });
 
@@ -139,16 +166,15 @@ async fn run(
     let tx = com_tx.clone();
     let nci = nc_info.clone();
     let lci = local_info.clone();
-    let nclisten_handle = tokio::spawn(async move {
+    let _nclisten_handle = tokio::spawn(async move {
         let res = nclistening(tx.clone(), &nci, &lci, nc_state.clone()).await;
         if let Err(e) = res {
-            error!("{:?}", e);
-            terminate_send!(tx);
+            error_send!(tx, e);
         }
     });
 
     let tx = com_tx.clone();
-    let control_handle = tokio::spawn(async move {
+    let _control_handle = tokio::spawn(async move {
         loop {
             let r = {
                 let res = tray_rx.lock();
@@ -164,26 +190,26 @@ async fn run(
 
             match r {
                 Some(Ok(m)) => {
+                    // info!("control_handle: {:?}", m);
                     let com = match m {
                         TasktrayMessage::Repair => Command::NormalRepair,
+                        TasktrayMessage::Restart => Command::Terminate(true),
                         TasktrayMessage::Exit => Command::Terminate(false),
                         _ => continue,
                     };
                     let res = tx.send(com).await;
                     if let Err(e) = res {
-                        error!("{:?}", e);
+                        error!("! {:?}", e);
                         // terminate_send!(tx);
                         return;
                     }
                 }
                 Some(Err(e)) => {
-                    error!("{:?}", e);
-                    terminate_send!(tx);
+                    error_send!(tx, e.into());
                     return;
                 }
                 _ => {
-                    error!("Something wrong.");
-                    terminate_send!(tx);
+                    error_send!(tx, anyhow!("Something wrong"));
                     return;
                 }
             }
@@ -195,7 +221,8 @@ async fn run(
     let mut nc2l_cancel_map = HashMap::new();
     let mut l2nc_cancel_set = HashSet::new();
     let mut offline_locevent_que: Vec<local_listen::LocalEvent> = Vec::new();
-    let mut retry = false;
+    let mut retry = Ok(false);
+    let mut current_icon = IconChange::Normal;
     icon_tx.send(IconChange::Normal).ok();
     info!("Main Loop Start");
     while let Some(e) = com_rx.recv().await {
@@ -214,11 +241,12 @@ async fn run(
                     )
                     .await;
                     if let Err(e) = res {
-                        error!("{:?}", e);
+                        error!("L {:?}", e);
                         icon_tx.send(IconChange::Error).ok();
-                        // break;
+                        current_icon = IconChange::Error;
+                        continue;
                     }
-                    icon_tx.send(IconChange::Normal).ok();
+                    icon_tx.send(current_icon).ok();
                 }
                 NetworkStatus::Disconnect | NetworkStatus::Err(_) => {
                     info!("LocEvent({:?}) @ offline", ev);
@@ -247,11 +275,12 @@ async fn run(
                     )
                     .await;
                     if let Err(e) = res {
-                        error!("{:?}", e);
+                        error!("NC {:?}", e);
                         icon_tx.send(IconChange::Error).ok();
-                        // break;
+                        current_icon = IconChange::Error;
+                        continue;
                     }
-                    icon_tx.send(IconChange::Normal).ok();
+                    icon_tx.send(current_icon).ok();
                 }
                 NetworkStatus::Disconnect | NetworkStatus::Err(_) => {
                     error!("It should be unreachable branch. something wrong.");
@@ -261,7 +290,14 @@ async fn run(
                 icon_tx.send(IconChange::Load).ok();
                 info!("Update Exclude targets file.");
                 info!("Rebooting...");
-                retry = true;
+                retry = Ok(true);
+                break;
+            }
+            Command::UpdateConfigFile => {
+                icon_tx.send(IconChange::Load).ok();
+                info!("Update Config file.");
+                info!("Rebooting...");
+                retry = Ok(true);
                 break;
             }
             Command::HardRepair => {
@@ -270,10 +306,14 @@ async fn run(
                 drop(root_watcher);
                 drop(meta_watcher);
                 com_rx.close();
+
+                /*
                 nclisten_handle.abort();
                 watching_handle.abort();
                 updateexcfile_handle.abort();
+                updateconfigfile_handle.abort();
                 control_handle.abort();
+                */
                 repair::all_delete(&local_info)?;
                 info!("Rebooting...");
                 return Ok(true);
@@ -288,13 +328,14 @@ async fn run(
                 repair::normal_repair(&local_info, &nc_info, &public_resource, events).await?;
                 sleep(Duration::from_secs(20)).await;
                 info!("Rebooting...");
-                retry = true;
+                retry = Ok(true);
                 break;
             }
             Command::NetworkConnect => match network_status {
                 NetworkStatus::Connect => (),
                 _ => {
                     info!("Network Connection Restored.");
+                    icon_tx.send(IconChange::Load).ok();
                     // Reconnect situation
                     let have_to_rerun = repair::soft_repair(
                         &local_info,
@@ -307,18 +348,20 @@ async fn run(
                     )
                     .await?;
                     if have_to_rerun {
-                        icon_tx.send(IconChange::Error).ok();
-                        retry = true;
+                        icon_tx.send(IconChange::Load).ok();
+                        retry = Ok(true);
                         break;
                     } else {
                         network_status = NetworkStatus::Connect;
-                        retry = false;
+                        icon_tx.send(IconChange::Normal).ok();
+                        retry = Ok(false);
                     }
                 }
             },
             Command::NetworkDisconnect => match network_status {
                 NetworkStatus::Connect => {
                     info!("Lost Network Connection.");
+                    icon_tx.send(IconChange::Offline).ok();
                     // disconnect situation
                     nc2l_cancel_map = HashMap::new();
                     l2nc_cancel_set = HashSet::new();
@@ -328,7 +371,11 @@ async fn run(
             },
             Command::Terminate(r) => {
                 icon_tx.send(IconChange::Load).ok();
-                retry = r;
+                retry = Ok(r);
+                break;
+            }
+            Command::Error(e) => {
+                retry = Err(e);
                 break;
             }
         }
@@ -342,10 +389,13 @@ async fn run(
 
     com_rx.close();
 
+    /*
     nclisten_handle.abort();
     watching_handle.abort();
     updateexcfile_handle.abort();
+    updateconfigfile_handle.abort();
     control_handle.abort();
+    */
 
     let pr_ref = public_resource.lock().map_err(|_| LockError)?;
     let json_entry = {
@@ -359,27 +409,20 @@ async fn run(
         &local_info,
     )?;
 
-    icon_tx.send(IconChange::Terminate).ok();
-
-    Ok(retry)
+    retry
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    unsafe {
-        if !Path::new(".env").exists() {
-            prepare_dotenv_file()?;
-        }
-    }
-
-    dotenv().ok();
-    // env_logger::init();
-    let log_handle = prepare_logging_without_logfile()?;
+    let mut config = unsafe { config::prepare_config_file()? };
+    let log_handle = logging::prepare_logging_without_logfile(&config)?;
 
     let (tray_tx, tray_rx) = std_mpsc::channel();
+    let (emergency_tx, emergency_rx) = std_mpsc::channel();
 
     unsafe {
         P_TX = Some(tray_tx.clone());
+        P_EMERGENCY_TX = Some(emergency_tx.clone());
 
         let (icon_tx, icon_rx) = std_mpsc::channel();
         let tasktray_handle = std::thread::spawn(|| {
@@ -391,74 +434,47 @@ async fn main() -> Result<()> {
 
         let tray_rx = Arc::new(Mutex::new(tray_rx));
         let mut debug_counter = 1;
-        while run(
-            tray_tx.clone(),
-            tray_rx.clone(),
-            icon_tx.clone(),
-            &log_handle,
-            debug_counter,
-        )
-        .await?
-        {
+        loop {
+            let cntn_w = run(
+                tray_tx.clone(),
+                tray_rx.clone(),
+                icon_tx.clone(),
+                &log_handle,
+                debug_counter,
+                &config,
+            )
+            .await;
+
+            match cntn_w {
+                Ok(true) => (),
+                Ok(false) => break,
+                Err(e) => {
+                    error!("# {}", e);
+                    icon_tx.send(IconChange::Error).ok();
+                    match emergency_rx.recv() {
+                        Ok(false) | Err(_) => break,
+                        _ => {
+                            if let Ok(rx) = tray_rx.lock() {
+                                // to consume TasktrayMessage::Restart
+                                while let Ok(v) = rx.try_recv() {
+                                    debug!("v: {:?}", v);
+                                }
+                                debug!("while let break.");
+                            }
+                        }
+                    }
+                }
+            }
+
+            config = config::prepare_config_file()?;
             debug_counter += 1;
         }
         drop(tray_rx);
+        drop(emergency_rx);
+
+        icon_tx.send(IconChange::Terminate).ok();
 
         let _ = tasktray_handle.join();
-    }
-
-    Ok(())
-}
-
-unsafe fn prepare_dotenv_file() -> Result<()> {
-    let con_window = GetConsoleWindow();
-    if !con_window.is_null() {
-        ShowWindow(con_window, SW_SHOW);
-    }
-
-    if Path::new("./.env").exists() {
-        return Ok(());
-    }
-
-    let mut nc_host = String::new();
-    print!("NC_HOST: ");
-    io::stdout().flush()?;
-    io::stdin().read_line(&mut nc_host)?;
-    let mut nc_username = String::new();
-    print!("NC_USERNAME: ");
-    io::stdout().flush()?;
-    io::stdin().read_line(&mut nc_username)?;
-    // let mut nc_password = String::new();
-    print!("NC_PASSWORD: ");
-    io::stdout().flush()?;
-    // io::stdin().read_line(&mut nc_password)?;
-    let nc_password = rpassword::read_password()?;
-    let mut local_root = String::new();
-    print!("watch dir path (ex. c:/Users/...): ");
-    io::stdout().flush()?;
-    io::stdin().read_line(&mut local_root)?;
-
-    let contents = format!(
-        "NC_HOST={}
-NC_USERNAME={}
-NC_PASSWORD={}
-LOCAL_ROOT={}
-RUST_LOG=info",
-        nc_host.trim(),
-        nc_username.trim(),
-        nc_password.trim(),
-        local_root.trim()
-    );
-
-    let mut file = fs::File::create("./.env")?;
-    write!(file, "{}", contents)?;
-    file.flush()?;
-
-    println!("Ok, Configuring Completed.");
-
-    let con_window = GetConsoleWindow();
-    if !con_window.is_null() {
-        ShowWindow(con_window, SW_HIDE);
     }
 
     Ok(())
@@ -479,61 +495,6 @@ async fn init(nc_info: &NCInfo, local_info: &LocalInfo) -> Result<(ArcEntry, Str
     Ok((root_entry, latest_activity_id))
 }
 
-fn prepare_logging_without_logfile() -> Result<log4rs::Handle> {
-    let log_level = env::var("RUST_LOG").unwrap_or("Off".to_string());
-    let log_level = log::LevelFilter::from_str(&log_level).unwrap_or(log::LevelFilter::Off);
-
-    let stderr = ConsoleAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(
-            "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
-        )))
-        .target(Target::Stderr)
-        .build();
-
-    let config = Config::builder()
-        .appender(Appender::builder().build("stderr", Box::new(stderr)))
-        .build(Root::builder().appender("stderr").build(log_level))?;
-
-    let handle = log4rs::init_config(config)?;
-
-    Ok(handle)
-}
-
-fn prepare_logging<P>(handle: &log4rs::Handle, logfile_path: P) -> Result<()>
-where
-    P: AsRef<Path> + std::fmt::Debug,
-{
-    let log_level = env::var("RUST_LOG").unwrap_or("Off".to_string());
-    let log_level = log::LevelFilter::from_str(&log_level).unwrap_or(log::LevelFilter::Off);
-
-    let stderr = ConsoleAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(
-            "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
-        )))
-        .target(Target::Stderr)
-        .build();
-
-    let file_appender = FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(
-            "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
-        )))
-        .build(&logfile_path)?;
-
-    let config = Config::builder()
-        .appender(Appender::builder().build("stderr", Box::new(stderr)))
-        .appender(Appender::builder().build("file_appender", Box::new(file_appender)))
-        .build(
-            Root::builder()
-                .appender("file_appender")
-                .appender("stderr")
-                .build(log_level),
-        )?;
-
-    handle.set_config(config);
-
-    Ok(())
-}
-
 #[macro_use]
 extern crate anyhow;
 use std::{mem, ptr};
@@ -541,28 +502,35 @@ use std::{mem, ptr};
 const MYMSG_TRAY: u32 = WM_APP + 1;
 const ID_MYTRAY: u32 = 56562; // ゴロゴロニャーちゃん
 
-const MSGID_REPAIR: u32 = 40001;
-const MSGID_EXIT: u32 = 40002;
+const MSGID_SHOWLOG: u32 = 40001;
+const MSGID_EDITCONF: u32 = 40002;
+const MSGID_REPAIR: u32 = 40003;
+const MSGID_RESTART: u32 = 40009;
+const MSGID_EXIT: u32 = 40010;
 
 static mut P_NID: *mut NOTIFYICONDATAW = ptr::null_mut();
 static mut P_NID_NORMAL: *mut NOTIFYICONDATAW = ptr::null_mut();
 static mut P_NID_LOAD: *mut NOTIFYICONDATAW = ptr::null_mut();
 static mut P_NID_ERROR: *mut NOTIFYICONDATAW = ptr::null_mut();
+static mut P_NID_OFFLINE: *mut NOTIFYICONDATAW = ptr::null_mut();
 static mut P_HMENU: *mut HMENU = ptr::null_mut();
 static mut P_TX: Option<std_mpsc::Sender<TasktrayMessage>> = None;
+static mut P_EMERGENCY_TX: Option<std_mpsc::Sender<bool>> = None;
 
 #[derive(Debug)]
 enum TasktrayMessage {
     Nop,
     Repair,
+    Restart,
     Exit,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum IconChange {
     Normal,
     Load,
     Error,
+    Offline,
     Terminate,
 }
 
@@ -612,6 +580,8 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
         std::ptr::null_mut(),
     );
 
+    let mut nid = create_nid(hwnd, instance, "ICON_4");
+    P_NID_OFFLINE = &mut nid;
     let mut nid = create_nid(hwnd, instance, "ICON_3");
     P_NID_ERROR = &mut nid;
     let mut nid = create_nid(hwnd, instance, "ICON_2");
@@ -643,6 +613,11 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
             Ok(IconChange::Error) => {
                 Shell_NotifyIconW(NIM_DELETE, P_NID);
                 P_NID = P_NID_ERROR;
+                Shell_NotifyIconW(NIM_ADD, P_NID);
+            }
+            Ok(IconChange::Offline) => {
+                Shell_NotifyIconW(NIM_DELETE, P_NID);
+                P_NID = P_NID_OFFLINE;
                 Shell_NotifyIconW(NIM_ADD, P_NID);
             }
             _ => break,
@@ -730,10 +705,25 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                             tx.send(TasktrayMessage::Repair).ok();
                         }
                     }
+                    (MSGID_RESTART, _) => {
+                        debug!("TASKTRAY RESTART");
+                        if let Some(tx) = P_TX.as_ref() {
+                            tx.send(TasktrayMessage::Restart).ok();
+
+                            if let Some(etx) = P_EMERGENCY_TX.as_ref() {
+                                etx.send(true).ok();
+                            }
+                        }
+                    }
                     (MSGID_EXIT, _) => {
                         debug!("TASKTRAY EXIT");
                         if let Some(tx) = P_TX.as_ref() {
                             tx.send(TasktrayMessage::Exit).ok();
+
+                            if let Some(etx) = P_EMERGENCY_TX.as_ref() {
+                                etx.send(false).ok();
+                            }
+
                             PostQuitMessage(0);
                         }
                     }

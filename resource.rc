@@ -1,9 +1,13 @@
 ID_NC_CONTROL MENU {
     POPUP "PopuoMenu1" {
-        MENUITEM "repair" , 40001
-        MENUITEM "exit" , 40002
+        MENUITEM "show log" , 40001
+        MENUITEM "edit conf.ini" , 40002
+        MENUITEM "repair" , 40003
+        MENUITEM "restart" , 40009
+        MENUITEM "exit" , 40010
     }
 }
 ICON_1 ICON "nc_normal.ico"
 ICON_2 ICON "nc_load.ico"
 ICON_3 ICON "nc_error.ico"
+ICON_4 ICON "nc_offline.ico"

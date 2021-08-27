@@ -6,7 +6,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ncs = { git = "https://github.com/anotherhollow1125/next-client", rev = "7a68b9a1cb575fa82078f28755aa61e96f2e6b16" }
+ncs = { git = "https://github.com/anotherhollow1125/next-client", rev = "e1cb5fdcd1a1208afe12b551f6873ec3cb7d4b95" }
 bindings = { path = "bindings" }
 windows = "0.19.0"
 anyhow = "1.0.43"
@@ -17,6 +17,8 @@ notify = "4.0.17"
 tokio = { version = "1.8.1", features = ["full"] }
 if_chain = "1.0.1"
 rpassword = "5.0.1"
+rust-ini = "0.17.0"
+reqwest = "0.11.4"
 
 [build-dependencies]
 embed-resource = "1.6.3"
