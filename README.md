@@ -95,15 +95,15 @@ A hidden folder named `.ncs` will be created in the folder that is set as LOCAL_
 
 ### 5. Exclusion Settings
 
-`.ncs / excludes.json` is a JSON file consisting of the` blacks` and `wihtes` fields. You can open the file with the `edit excludes` command.
+`.ncs/excludes.json` is a JSON file consisting of the `blacks` and `wihtes` fields. You can open the file with the `edit excludes` command.
 
-Set `blacks` to the folder/file names you don't want to sync, and `whites` to the folder/file names you want to sync even if they are trapped by `blacks`, using **regular expressions**. Folders/files that are determined not to be synchronized will be ignored even if they are created locally, and will not be saved locally even if they are saved on the server in some other way. Whitelists take precedence over blacklists, for example, if `\d+\.txt` is included in `blacks`, but `10.txt` is included in `whites`, then `10.txt` will be synchronized.
+Set `blacks` to the folder/file names you don't want to sync, and `whites` to the folder/file names you want to sync even if they are trapped by `blacks`, using **regular expressions**. Folders/files that are determined not to be synchronized will be ignored even if they are created locally, and will not be saved locally even if they are saved on the server in some other way. Whitelists take precedence over blacklists, for example, if `\\d+\\.txt` is included in `blacks`, but `10.txt` is included in `whites`, then `10.txt` will be synchronized. Note that since the excludes is json file, "\" must be escaped to "\\".
 
 Because the check is done only for each folder/file name, it is not possible to check "I don't want to synchronize `hoge/target`, but I want to synchronize `fuga/target`". Please be aware of this point.
 
 Folders/filenames starting with `.` and `~` are not synced by default, although this is not stated in `blacks` and `whites`.
 
-Do not include `\.ncs` in `whites`. The log file will keep being updated, resulting in an infinite loop and a heavy load on the server. (If you really want to synchronize, set `RUST_LOG` to `OFF`. The cost is that the log files will not be fully functional).
+Do not include `\\.ncs` in `whites`. The log file will keep being updated, resulting in an infinite loop and a heavy load on the server. (If you really want to synchronize, set `RUST_LOG` to `OFF`. The cost is that the log files will not be fully functional).
 
 ## Q&A
 
@@ -126,7 +126,7 @@ A3. Didn't you shut down once? The "Automatically add this application to startu
 A4. Check the following points.
 
 - Files starting with `.` or `~` are considered hidden files and are not synchronized by default. Be especially careful with `.gitignore` files.
-- All settings are regular expressions. For example, When you want to add `.gitignore` file to the whitelist, if you write `.gitignore`, it will be synced even if you have set `agitignore` to the blacklist. In this example, you need to write `\.gitignore` . Using an expression like `^filename$`, which is a full match, is useful to prevent partial matches of folders and files from being synchronized.
+- All settings are regular expressions. For example, When you want to add `.gitignore` file to the whitelist, if you write `.gitignore`, it will be synced even if you have set `agitignore` to the blacklist. In this example, you need to write `\\.gitignore` . Using an expression like `^filename$`, which is a full match, is useful to prevent partial matches of folders and files from being synchronized.
 - The whitelist takes precedence over the blacklist.
 - It does not have the ability to judge by the entire path, but simply excludes/synchronizes files and folders that match the regular expression added to the blacklist/whitelist. If a parent folder is caught in the blacklist, its child files will not be synchronized.
 - If you delete the `.ncs` folder for the purpose of resetting, `excludes.json` will also be deleted, so you will need to set it again.
@@ -238,7 +238,7 @@ Windowsのスタートアップ機能を使用するとWindows起動時に本ア
 
 `.ncs/excludes.json` は `blacks` フィールドと `wihtes` フィールドからなるJSONファイルです。 `edit excludes` コマンドからファイルを開くことができます。
 
-`blacks` には同期したくないフォルダ/ファイル名を、 `whites` には `blacks` に引っかかるものの同期を行いたいフォルダ/ファイル名を、それぞれ **正規表現で** 設定します。同期しないと判断されたフォルダ/ファイルは、ローカルで作成されても無視され、別な方法でサーバー上に保存されてもローカルに保存されません。ブラックリストよりホワイトリストが優先され、例えば `\d+\.txt` を `blacks` に含めていても、 `whites` に `10.txt` が含まれていれば `10.txt` は同期されます。
+`blacks` には同期したくないフォルダ/ファイル名を、 `whites` には `blacks` に引っかかるものの同期を行いたいフォルダ/ファイル名を、それぞれ **正規表現で** 設定します。同期しないと判断されたフォルダ/ファイルは、ローカルで作成されても無視され、別な方法でサーバー上に保存されてもローカルに保存されません。ブラックリストよりホワイトリストが優先され、例えば `\\d+\\.txt` を `blacks` に含めていても、 `whites` に `10.txt` が含まれていれば `10.txt` は同期されます。excludesファイルはjsonファイルであるため、"\"は"\\"へとエスケープする必要性があることに注意してください。
 
 あくまでも各フォルダ/ファイル名に対してのみチェックを行うので、「 `hoge/target` は同期したくないけど `fuga/target` は同期したい」というような設定は不可能です。ご了承ください。
 
@@ -267,7 +267,7 @@ A3. 一度シャットダウンしませんでしたか？「初回起動時に�
 A4. 次の点を確認してください。
 
 - `.` 、 `~` で始まるファイルは隠しファイルとみなしデフォルトで同期されません。特に `.gitignore` ファイルなどは注意が必要となります。
-- 設定はすべて正規表現です。例えば `.gitignore` ファイルをホワイトリストに加えたい場合、`.gitignore` と書いてしまうと `agitignore` 等をブラックリストに設定していても同期されてしまいます。この例では `\.gitignore` と書く必要があります。フルマッチとなる `^filename$` のような表現を使うと、部分マッチのフォルダやファイルが同期されるのを防ぐことができ便利です。
+- 設定はすべて正規表現です。例えば `.gitignore` ファイルをホワイトリストに加えたい場合、`.gitignore` と書いてしまうと `agitignore` 等をブラックリストに設定していても同期されてしまいます。この例では `\\.gitignore` と書く必要があります。フルマッチとなる `^filename$` のような表現を使うと、部分マッチのフォルダやファイルが同期されるのを防ぐことができ便利です。
 - ブラックリストよりホワイトリストが優先されます。
 - パス全体で判断する機能はなく、単純にブラックリスト/ホワイトリストに追加された正規表現にマッチするファイル/フォルダは排除/同期されます。親フォルダがブラックリストに引っかかった場合、その子ファイルは同期されません。ご注意ください。
 - リセット等を目的として `.ncs` フォルダを消去してしまった場合、 `excludes.json` も削除されるため、改めて設定する必要があります。
