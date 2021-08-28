@@ -11,7 +11,9 @@ jobs:
     steps:
       - name: Setup variables
         id: variables
-        run: echo "::set-output name=version::${GITHUB_REF##*/}"
+        run: |
+          $v = $env:GITHUB_REF -replace "refs/tags/"
+          echo "::set-output name=version::$v"
       - uses: hecrj/setup-rust-action@v1
         with:
           rust-version: stable
@@ -19,7 +21,7 @@ jobs:
       - name: Build for Windows
         run: |
           cargo build
-          7z a next-client-win-${{ steps.variables.outputs.version }}.zip target/debug/next_client_win.exe README.md LISENCE-MIT
+          7z a next-client-win-${{ steps.variables.outputs.version }}.zip target/debug/next_client_win.exe README.md LICENSE-MIT
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
