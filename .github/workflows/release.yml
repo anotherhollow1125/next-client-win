@@ -21,7 +21,8 @@ jobs:
       - name: Build for Windows
         run: |
           cargo build
-          7z a next-client-win-${{ steps.variables.outputs.version }}.zip target/debug/next_client_win.exe README.md LICENSE-MIT
+          mv target/debug/next_client_win.exe .
+          7z a next-client-win-${{ steps.variables.outputs.version }}.zip next_client_win.exe README.md LICENSE-MIT
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
