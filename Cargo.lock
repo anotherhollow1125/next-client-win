@@ -737,7 +737,7 @@ dependencies = [
 [[package]]
 name = "ncs"
 version = "0.1.0"
-source = "git+https://github.com/anotherhollow1125/next-client?rev=e1cb5fdcd1a1208afe12b551f6873ec3cb7d4b95#e1cb5fdcd1a1208afe12b551f6873ec3cb7d4b95"
+source = "git+https://github.com/anotherhollow1125/next-client?rev=b6b815be892939fc343996b3d6e69f641b3be998#b6b815be892939fc343996b3d6e69f641b3be998"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -785,6 +785,8 @@ dependencies = [
  "log4rs",
  "ncs",
  "notify",
+ "once_cell",
+ "regex",
  "reqwest",
  "rpassword",
  "rust-ini",

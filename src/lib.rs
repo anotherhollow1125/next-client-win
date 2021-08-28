@@ -37,6 +37,8 @@ pub mod config {
     use ncs::errors::NcsError::*;
     use ncs::Command;
     use notify::DebouncedEvent;
+    use once_cell::sync::Lazy;
+    use regex::Regex;
     use std::ffi::OsStr;
     use std::io::{self, Write};
     use std::path::{Path, PathBuf};
@@ -54,6 +56,7 @@ pub mod config {
     pub enum ValidateResult {
         Ok,
         RootPathError,
+        DontUseSSLError,
         NetworkError,
     }
 
@@ -64,6 +67,8 @@ pub mod config {
         pub local_root: String,
         pub rust_log: log::LevelFilter,
     }
+
+    static RE_SSL_CHECK: Lazy<Regex> = Lazy::new(|| Regex::new("^https://.*").unwrap());
 
     impl Config {
         pub fn load_conf() -> Result<Self> {
@@ -120,6 +125,11 @@ pub mod config {
                 if let Err(_) = std::fs::create_dir_all(&root_path) {
                     return Ok(ValidateResult::RootPathError);
                 }
+            }
+
+            // ssl check
+            if !RE_SSL_CHECK.is_match(&self.nc_host) {
+                return Ok(ValidateResult::DontUseSSLError);
             }
 
             // network check

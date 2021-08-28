@@ -57,13 +57,18 @@ async fn run(
     match config.validation().await? {
         config::ValidateResult::Ok => (),
         config::ValidateResult::RootPathError => {
-            return Err(anyhow!("[config error] Please fix ROOT_PATH in conf.ini"))
+            return Err(anyhow!("[config error] Please fix ROOT_PATH in conf.ini"));
+        }
+        config::ValidateResult::DontUseSSLError => {
+            return Err(anyhow!(
+                "[config error] NC Host must use SSL/TLS. Please set \"https://...\" to NC_HOST."
+            ));
         }
         config::ValidateResult::NetworkError => {
             return Err(anyhow!(
                 "[config error] host, username or password are wrong or Network is disconnect.
 Please fix conf.ini and connect to the Internet."
-            ))
+            ));
         }
     }
 
@@ -174,6 +179,7 @@ Please fix conf.ini and connect to the Internet."
     });
 
     let tx = com_tx.clone();
+    let lci = local_info.clone();
     let _control_handle = tokio::spawn(async move {
         loop {
             let r = {
@@ -195,7 +201,12 @@ Please fix conf.ini and connect to the Internet."
                         TasktrayMessage::Repair => Command::NormalRepair,
                         TasktrayMessage::Restart => Command::Terminate(true),
                         TasktrayMessage::Exit => Command::Terminate(false),
-                        _ => continue,
+                        TasktrayMessage::ExcEdit => {
+                            let exc = lci.get_excludefile_name();
+                            open_notepad(exc);
+                            continue;
+                        }
+                        TasktrayMessage::Nop => continue,
                     };
                     let res = tx.send(com).await;
                     if let Err(e) = res {
@@ -504,7 +515,8 @@ const ID_MYTRAY: u32 = 56562; // ゴロゴロニャーちゃん
 
 const MSGID_SHOWLOG: u32 = 40001;
 const MSGID_EDITCONF: u32 = 40002;
-const MSGID_REPAIR: u32 = 40003;
+const MSGID_EDITEXCLUDE: u32 = 40003;
+const MSGID_REPAIR: u32 = 40004;
 const MSGID_RESTART: u32 = 40009;
 const MSGID_EXIT: u32 = 40010;
 
@@ -520,6 +532,7 @@ static mut P_EMERGENCY_TX: Option<std_mpsc::Sender<bool>> = None;
 #[derive(Debug)]
 enum TasktrayMessage {
     Nop,
+    ExcEdit,
     Repair,
     Restart,
     Exit,
@@ -690,7 +703,7 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                 }
                 LRESULT(0)
             }
-            WM_DESTROY => {
+            WM_DESTROY | WM_QUERYENDSESSION => {
                 if let Some(tx) = P_TX.as_ref() {
                     tx.send(TasktrayMessage::Exit).ok();
                 }
@@ -701,11 +714,17 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                 match (wparam.0 as u32, lparam.0 as u32) {
                     (MSGID_SHOWLOG, _) => {
                         debug!("TASKTRAY SHOWLOG");
-                        open_notepad(logging::TMPLOGFILENAME);
+                        open_notepad(logging::TMPLOGFILENAME.to_string());
                     }
                     (MSGID_EDITCONF, _) => {
-                        debug!("TASKTRAY SHOWLOG");
-                        open_notepad(config::CONFFILENAME);
+                        debug!("TASKTRAY EDITCONF");
+                        open_notepad(config::CONFFILENAME.to_string());
+                    }
+                    (MSGID_EDITEXCLUDE, _) => {
+                        debug!("TASKTRAY EDITEXCLUDE");
+                        if let Some(tx) = P_TX.as_ref() {
+                            tx.send(TasktrayMessage::ExcEdit).ok();
+                        }
                     }
                     (MSGID_REPAIR, _) => {
                         debug!("TASKTRAY REPAIR");
@@ -744,10 +763,10 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
     }
 }
 
-fn open_notepad(filepath: &'static str) {
+fn open_notepad(filepath: String) {
     std::thread::spawn(move || {
         std::process::Command::new("notepad")
-            .args(&[filepath])
+            .args(&[filepath.as_str()])
             .status()
             .ok();
     });
