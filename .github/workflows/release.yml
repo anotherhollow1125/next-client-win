@@ -3,26 +3,26 @@ name: release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   release:
     runs-on: windows-latest
     steps:
-     - name: Setup variables
-       id: variables
-       run: echo "::set-output name=version::${GITHUB_REF##*/}"
-    - uses: hecrj/setup-rust-action@v1
-      with:
-        rust-version: stable
-    - uses: actions/checkout@master
-    - name: Build for Windows
-      run: |
-        cargo build --debug
-        7z a next-client-win-${{ steps.variables.outputs.version }}.zip target/debug/next_client_win.exe
-    - name: Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: '*.zip'
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup variables
+        id: variables
+        run: echo "::set-output name=version::${GITHUB_REF##*/}"
+      - uses: hecrj/setup-rust-action@v1
+        with:
+          rust-version: stable
+      - uses: actions/checkout@master
+      - name: Build for Windows
+        run: |
+          cargo build --debug
+          7z a next-client-win-${{ steps.variables.outputs.version }}.zip target/debug/next_client_win.exe
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "*.zip"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
