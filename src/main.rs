@@ -26,16 +26,6 @@ use tokio::time::{sleep, Duration};
 #[macro_use]
 extern crate if_chain;
 
-/*
-macro_rules! terminate_send {
-    ($tx:expr) => {
-        if let Err(e) = $tx.send(Command::Terminate(true)).await {
-            warn!("{:?} : Reciever dropped.", e);
-        }
-    };
-}
-*/
-
 macro_rules! error_send {
     ($tx:expr, $e:expr) => {
         if let Err(re) = $tx.send(Command::Error($e)).await {
