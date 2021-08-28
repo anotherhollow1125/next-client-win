@@ -18,8 +18,8 @@ jobs:
       - uses: actions/checkout@master
       - name: Build for Windows
         run: |
-          cargo build --debug
-          7z a next-client-win-${{ steps.variables.outputs.version }}.zip target/debug/next_client_win.exe
+          cargo build
+          7z a next-client-win-${{ steps.variables.outputs.version }}.zip target/debug/next_client_win.exe README.md LISENCE-MIT
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
