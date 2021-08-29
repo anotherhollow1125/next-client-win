@@ -773,7 +773,7 @@ dependencies = [
 
 [[package]]
 name = "next_client_win"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "bindings",
