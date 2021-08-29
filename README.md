@@ -97,7 +97,7 @@ A hidden folder named `.ncs` will be created in the folder that is set as LOCAL_
 
 `.ncs/excludes.json` is a JSON file consisting of the `blacks` and `wihtes` fields. You can open the file with the `edit excludes` command.
 
-Set `blacks` to the folder/file names you don't want to sync, and `whites` to the folder/file names you want to sync even if they are trapped by `blacks`, using **regular expressions**. Folders/files that are determined not to be synchronized will be ignored even if they are created locally, and will not be saved locally even if they are saved on the server in some other way. Whitelists take precedence over blacklists, for example, if `\\d+\\.txt` is included in `blacks`, but `10.txt` is included in `whites`, then `10.txt` will be synchronized. Note that since the excludes is json file, "\" must be escaped to "\\".
+Set `blacks` to the folder/file names you don't want to sync, and `whites` to the folder/file names you want to sync even if they are trapped by `blacks`, using **regular expressions**. Folders/files that are determined not to be synchronized will be ignored even if they are created locally, and will not be saved locally even if they are saved on the server in some other way. Whitelists take precedence over blacklists, for example, if `\\d+\\.txt` is included in `blacks`, but `10.txt` is included in `whites`, then `10.txt` will be synchronized. Note that since the excludes is json file, `\` must be escaped to `\\`.
 
 Because the check is done only for each folder/file name, it is not possible to check "I don't want to synchronize `hoge/target`, but I want to synchronize `fuga/target`". Please be aware of this point.
 
@@ -238,13 +238,13 @@ Windowsのスタートアップ機能を使用するとWindows起動時に本ア
 
 `.ncs/excludes.json` は `blacks` フィールドと `wihtes` フィールドからなるJSONファイルです。 `edit excludes` コマンドからファイルを開くことができます。
 
-`blacks` には同期したくないフォルダ/ファイル名を、 `whites` には `blacks` に引っかかるものの同期を行いたいフォルダ/ファイル名を、それぞれ **正規表現で** 設定します。同期しないと判断されたフォルダ/ファイルは、ローカルで作成されても無視され、別な方法でサーバー上に保存されてもローカルに保存されません。ブラックリストよりホワイトリストが優先され、例えば `\\d+\\.txt` を `blacks` に含めていても、 `whites` に `10.txt` が含まれていれば `10.txt` は同期されます。excludesファイルはjsonファイルであるため、"\"は"\\"へとエスケープする必要性があることに注意してください。
+`blacks` には同期したくないフォルダ/ファイル名を、 `whites` には `blacks` に引っかかるものの同期を行いたいフォルダ/ファイル名を、それぞれ **正規表現で** 設定します。同期しないと判断されたフォルダ/ファイルは、ローカルで作成されても無視され、別な方法でサーバー上に保存されてもローカルに保存されません。ブラックリストよりホワイトリストが優先され、例えば `\\d+\\.txt` を `blacks` に含めていても、 `whites` に `10.txt` が含まれていれば `10.txt` は同期されます。excludesファイルはjsonファイルであるため、`\` は `\\` へとエスケープする必要性があることに注意してください。
 
 あくまでも各フォルダ/ファイル名に対してのみチェックを行うので、「 `hoge/target` は同期したくないけど `fuga/target` は同期したい」というような設定は不可能です。ご了承ください。
 
 `.` と `~` で始まるフォルダ/ファイル名は、 `blacks` 、 `whites` には明記されていませんがデフォルトで同期されません。
 
-`whites` に `\.ncs` を含めることだけは絶対にやめてください。ログファイルが更新され続けるため無限ループとなりサーバーに多大な負荷がかかります。(どうしても同期したければ `RUST_LOG` を `OFF` に設定してください。その代償としてログファイルは完全に機能しません。)
+`whites` に `\\.ncs` を含めることだけは絶対にやめてください。ログファイルが更新され続けるため無限ループとなりサーバーに多大な負荷がかかります。(どうしても同期したければ `RUST_LOG` を `OFF` に設定してください。その代償としてログファイルは完全に機能しません。)
 
 ## Q&A
 

@@ -604,24 +604,20 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
     std::thread::spawn(move || loop {
         match icon_rx.recv() {
             Ok(IconChange::Normal) => {
-                Shell_NotifyIconW(NIM_DELETE, P_NID);
                 P_NID = P_NID_NORMAL;
-                Shell_NotifyIconW(NIM_ADD, P_NID);
+                Shell_NotifyIconW(NIM_MODIFY, P_NID);
             }
             Ok(IconChange::Load) => {
-                Shell_NotifyIconW(NIM_DELETE, P_NID);
                 P_NID = P_NID_LOAD;
-                Shell_NotifyIconW(NIM_ADD, P_NID);
+                Shell_NotifyIconW(NIM_MODIFY, P_NID);
             }
             Ok(IconChange::Error) => {
-                Shell_NotifyIconW(NIM_DELETE, P_NID);
                 P_NID = P_NID_ERROR;
-                Shell_NotifyIconW(NIM_ADD, P_NID);
+                Shell_NotifyIconW(NIM_MODIFY, P_NID);
             }
             Ok(IconChange::Offline) => {
-                Shell_NotifyIconW(NIM_DELETE, P_NID);
                 P_NID = P_NID_OFFLINE;
-                Shell_NotifyIconW(NIM_ADD, P_NID);
+                Shell_NotifyIconW(NIM_MODIFY, P_NID);
             }
             _ => break,
         }
