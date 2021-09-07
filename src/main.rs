@@ -55,10 +55,10 @@ async fn run(
             ));
         }
         config::ValidateResult::NetworkError => {
-            return Err(anyhow!(
+            warn!(
                 "[config error] host, username or password are wrong or Network is disconnect.
 Please fix conf.ini and connect to the Internet."
-            ));
+            );
         }
     }
 

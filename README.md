@@ -20,7 +20,7 @@ THEREFORE, **IF YOUR NEXTCLOUD SERVER's URL START "http://", YOU MUST NOT USE TH
 
 ## How to use
 
-### 1. install
+### 1. Install
 
 Download the zip file from [here](https://github.com/anotherhollow1125/next-client-win/releases), unzip it, and place "next_client_win.exe" in an appropriate location for use. Double-click on it to launch it.
 
