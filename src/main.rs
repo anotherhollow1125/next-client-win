@@ -71,7 +71,8 @@ Please fix conf.ini and connect to the Internet."
     let nc_info = NCInfo::new(username, password, host);
 
     let local_root_path = config.local_root.clone();
-    let local_info = LocalInfo::new(local_root_path)?;
+    let client = config.make_client()?;
+    let local_info = LocalInfo::new(local_root_path, client.clone())?;
 
     let logfile_path = local_info.get_logfile_name();
     logging::prepare_logging(log_handle, logfile_path, config)?;
@@ -87,7 +88,7 @@ Please fix conf.ini and connect to the Internet."
         public_resource = PublicResource::new(root_entry, nc_state);
     } else {
         // init
-        if !network::is_online(&nc_info).await {
+        if !network::is_online(&nc_info, &client).await {
             return Err(NetworkOfflineError.into());
         }
 
@@ -218,7 +219,7 @@ Please fix conf.ini and connect to the Internet."
         }
     });
 
-    let mut network_status = network::status(&nc_info).await?;
+    let mut network_status = network::status(&nc_info, &client).await?;
     let mut nc2l_cancel_map = HashMap::new();
     let mut l2nc_cancel_set = HashSet::new();
     let mut offline_locevent_que: Vec<local_listen::LocalEvent> = Vec::new();
@@ -483,7 +484,7 @@ async fn main() -> Result<()> {
 
 async fn init(nc_info: &NCInfo, local_info: &LocalInfo) -> Result<(ArcEntry, String)> {
     let root_entry = from_nc_all(nc_info, local_info, "/").await?;
-    let latest_activity_id = get_latest_activity_id(nc_info).await?;
+    let latest_activity_id = get_latest_activity_id(nc_info, local_info).await?;
     debug!("{}", latest_activity_id);
 
     init_local_entries(nc_info, local_info, &root_entry, "").await?;

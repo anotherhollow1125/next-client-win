@@ -66,6 +66,7 @@ pub mod config {
         pub nc_password: String,
         pub local_root: String,
         pub rust_log: log::LevelFilter,
+        pub proxy: Option<String>,
     }
 
     static RE_SSL_CHECK: Lazy<Regex> = Lazy::new(|| Regex::new("^https://.*").unwrap());
@@ -95,6 +96,7 @@ pub mod config {
                 .get("RUST_LOG")
                 .and_then(|l| log::LevelFilter::from_str(&l).ok())
                 .unwrap_or(log::LevelFilter::Off);
+            let proxy = s.get("PROXY").map(ToString::to_string);
 
             Ok(Self {
                 nc_host,
@@ -102,7 +104,19 @@ pub mod config {
                 nc_password,
                 local_root,
                 rust_log,
+                proxy,
             })
+        }
+
+        pub fn make_client(&self) -> Result<reqwest::Client> {
+            let mut client_builder = reqwest::Client::builder().https_only(true);
+
+            if let Some(proxy_url) = self.proxy.as_ref() {
+                let proxy = reqwest::Proxy::https(proxy_url)?;
+                client_builder = client_builder.proxy(proxy);
+            }
+
+            Ok(client_builder.build()?)
         }
 
         pub fn save_conf(&self) -> Result<()> {
@@ -139,7 +153,9 @@ pub mod config {
                 self.nc_host.clone(),
             );
             let url = format!("{}{}", nc_info.host, nc_info.root_path);
-            let res = reqwest::Client::new()
+
+            let client = self.make_client()?;
+            let res = client
                 .request(reqwest::Method::GET, &url)
                 .basic_auth(&nc_info.username, Some(&nc_info.password))
                 .send()
@@ -198,6 +214,7 @@ pub mod config {
             nc_password,
             local_root,
             rust_log,
+            proxy: None,
         };
 
         config.save_conf()?;
