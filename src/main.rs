@@ -2,8 +2,7 @@
 use anyhow::Result;
 use bindings::Windows::Win32::{
     Foundation::*,
-    System::Console::*,
-    System::LibraryLoader::GetModuleHandleA,
+    System::{Console::*, DataExchange::COPYDATASTRUCT, LibraryLoader::GetModuleHandleA},
     UI::{Shell::*, WindowsAndMessaging::*},
 };
 use log::{debug, error, info, warn};
@@ -13,7 +12,7 @@ use ncs::meta::*;
 use ncs::nc_listen::*;
 use ncs::network::{self, NetworkStatus};
 use ncs::*;
-use next_client_win::{config, logging};
+use next_client_win::{config, logging, ncsync_daemon};
 use notify::{watcher, RecursiveMode, Watcher};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -29,7 +28,7 @@ extern crate if_chain;
 macro_rules! error_send {
     ($tx:expr, $e:expr) => {
         if let Err(re) = $tx.send(Command::Error($e)).await {
-            warn!("{:?} : Reciever dropped.", re);
+            warn!("{:?} : Receiver dropped.", re);
         }
     };
 }
@@ -37,6 +36,8 @@ macro_rules! error_send {
 async fn run(
     tray_tx: std_mpsc::Sender<TasktrayMessage>,
     tray_rx: Arc<Mutex<std_mpsc::Receiver<TasktrayMessage>>>,
+    ncsyncmes_tx: std_mpsc::Sender<Option<NCSyncMessage>>,
+    ncsyncmes_rx: Arc<Mutex<std_mpsc::Receiver<Option<NCSyncMessage>>>>,
     icon_tx: std_mpsc::Sender<IconChange>,
     log_handle: &log4rs::Handle,
     _debug_counter: u32,
@@ -172,6 +173,7 @@ Please fix conf.ini and connect to the Internet."
     let tx = com_tx.clone();
     let lci = local_info.clone();
     let _control_handle = tokio::spawn(async move {
+        // このループはExcEditとNop以外はcontinueしないので落ちます！！
         loop {
             let r = {
                 let res = tray_rx.lock();
@@ -202,7 +204,6 @@ Please fix conf.ini and connect to the Internet."
                     let res = tx.send(com).await;
                     if let Err(e) = res {
                         error!("! {:?}", e);
-                        // terminate_send!(tx);
                         return;
                     }
                 }
@@ -215,7 +216,47 @@ Please fix conf.ini and connect to the Internet."
                     return;
                 }
             }
+            // because Repair, Restart, Exit command is not repeat this control.
             break;
+        }
+    });
+
+    let tx = com_tx.clone();
+    let lci = local_info.clone();
+    let _ncsyncmes_handle = tokio::spawn(async move {
+        loop {
+            let r = {
+                let res = ncsyncmes_rx.lock();
+                match res {
+                    Ok(rx) => Some(rx.recv()),
+                    Err(_) => None,
+                }
+            };
+
+            if tx.is_closed() {
+                break;
+            }
+
+            match r {
+                Some(Ok(Some(m))) => {
+                    // debug!("catch: {:?}", m);
+                    let res = ncsync_daemon::forge_event(m, &tx, &lci).await;
+                    if let Err(e) = res {
+                        error!("NCSM {:?}", e);
+                        error_send!(tx, e.into());
+                        return;
+                    }
+                }
+                Some(Ok(None)) => break,
+                Some(Err(e)) => {
+                    error_send!(tx, e.into());
+                    return;
+                }
+                _ => {
+                    error_send!(tx, anyhow!("Something wrong"));
+                    return;
+                }
+            }
         }
     });
 
@@ -388,6 +429,8 @@ Please fix conf.ini and connect to the Internet."
 
     // to close tasktray handle.
     let _ = tray_tx.send(TasktrayMessage::Nop);
+    // to close ncsyncmes handle.
+    let _ = ncsyncmes_tx.send(None);
 
     com_rx.close();
 
@@ -411,6 +454,8 @@ Please fix conf.ini and connect to the Internet."
         &local_info,
     )?;
 
+    debug!("run func end.");
+
     retry
 }
 
@@ -421,10 +466,12 @@ async fn main() -> Result<()> {
 
     let (tray_tx, tray_rx) = std_mpsc::channel();
     let (emergency_tx, emergency_rx) = std_mpsc::channel();
+    let (ncsyncmes_tx, ncsyncmes_rx) = std_mpsc::channel();
 
     unsafe {
         P_TX = Some(tray_tx.clone());
         P_EMERGENCY_TX = Some(emergency_tx.clone());
+        P_NCSYNCMES_TX = Some(ncsyncmes_tx.clone());
 
         let (icon_tx, icon_rx) = std_mpsc::channel();
         let tasktray_handle = std::thread::spawn(|| {
@@ -435,11 +482,14 @@ async fn main() -> Result<()> {
         });
 
         let tray_rx = Arc::new(Mutex::new(tray_rx));
+        let ncsyncmes_rx = Arc::new(Mutex::new(ncsyncmes_rx));
         let mut debug_counter = 1;
         loop {
             let cntn_w = run(
                 tray_tx.clone(),
                 tray_rx.clone(),
+                ncsyncmes_tx.clone(),
+                ncsyncmes_rx.clone(),
                 icon_tx.clone(),
                 &log_handle,
                 debug_counter,
@@ -499,6 +549,8 @@ async fn init(nc_info: &NCInfo, local_info: &LocalInfo) -> Result<(ArcEntry, Str
 
 #[macro_use]
 extern crate anyhow;
+use ncs::messaging::*;
+use std::{convert::TryFrom, slice::from_raw_parts};
 use std::{mem, ptr};
 
 const MYMSG_TRAY: u32 = WM_APP + 1;
@@ -519,6 +571,7 @@ static mut P_NID_OFFLINE: *mut NOTIFYICONDATAW = ptr::null_mut();
 static mut P_HMENU: *mut HMENU = ptr::null_mut();
 static mut P_TX: Option<std_mpsc::Sender<TasktrayMessage>> = None;
 static mut P_EMERGENCY_TX: Option<std_mpsc::Sender<bool>> = None;
+static mut P_NCSYNCMES_TX: Option<std_mpsc::Sender<Option<NCSyncMessage>>> = None;
 
 #[derive(Debug)]
 enum TasktrayMessage {
@@ -538,9 +591,19 @@ enum IconChange {
     Terminate,
 }
 
+/*
+fn encodeu8(source: &str) -> Vec<u8> {
+    let t = source.as_bytes().into_iter();
+    let _ = t.chain(vec![&0u8]);
+
+    vec![]
+    // .chain(vec![0]).collect()
+}
+*/
+
 unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
     let con_window = GetConsoleWindow();
-    if !con_window.is_null() {
+    if con_window.0 != 0 {
         ShowWindow(con_window, SW_HIDE);
     }
 
@@ -550,14 +613,14 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
         return Err(anyhow!("instance.0 == 0"));
     }
 
-    let window_class = "window";
+    let window_class = "ncclient";
 
     let wc = WNDCLASSA {
         hCursor: LoadCursorW(None, IDC_ARROW),
         hInstance: instance,
         hIcon: LoadIconW(instance, "ICON_1"),
-        lpszClassName: PSTR(b"window\0".as_ptr() as _),
-
+        lpszClassName: PSTR(b"ncclient\0".as_ptr() as _),
+        // lpszClassName: PSTR(encodeu8(window_class).as_ptr() as _),
         style: CS_HREDRAW | CS_VREDRAW,
         lpfnWndProc: Some(wndproc),
         ..Default::default()
@@ -572,7 +635,7 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
     let hwnd = CreateWindowExA(
         Default::default(),
         window_class,
-        "Nextcloud client window.",
+        "NCWindow",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
@@ -690,9 +753,12 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                 }
                 LRESULT(0)
             }
-            WM_DESTROY | WM_QUERYENDSESSION => {
+            WM_CLOSE | WM_DESTROY | WM_QUERYENDSESSION => {
                 if let Some(tx) = P_TX.as_ref() {
                     tx.send(TasktrayMessage::Exit).ok();
+                }
+                if let Some(tx) = P_NCSYNCMES_TX.as_ref() {
+                    tx.send(None).ok();
                 }
                 PostQuitMessage(0);
                 LRESULT(0)
@@ -734,6 +800,9 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                         if let Some(tx) = P_TX.as_ref() {
                             tx.send(TasktrayMessage::Exit).ok();
 
+                            if let Some(tx) = P_NCSYNCMES_TX.as_ref() {
+                                tx.send(None).ok();
+                            }
                             if let Some(etx) = P_EMERGENCY_TX.as_ref() {
                                 etx.send(false).ok();
                             }
@@ -743,6 +812,20 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                     }
                     _ => return DefWindowProcA(window, message, wparam, lparam),
                 }
+                LRESULT(0)
+            }
+            WM_COPYDATA => {
+                let cds = lparam.0 as *mut COPYDATASTRUCT;
+
+                let buf = from_raw_parts((*cds).lpData as *const u8, (*cds).cbData as usize);
+                let mes = NCSyncMessage::try_from(buf);
+                if let Ok(mes) = mes {
+                    debug!("Get Message: {:?}", mes);
+                    if let Some(tx) = P_NCSYNCMES_TX.as_ref() {
+                        tx.send(Some(mes)).ok();
+                    }
+                }
+
                 LRESULT(0)
             }
             _ => DefWindowProcA(window, message, wparam, lparam),

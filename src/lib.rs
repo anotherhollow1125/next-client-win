@@ -1,5 +1,11 @@
 #[macro_use]
+extern crate async_recursion;
+
+#[macro_use]
 extern crate anyhow;
+
+#[macro_use]
+extern crate if_chain;
 
 pub mod conscon {
     use bindings::Windows::Win32::{Foundation::*, System::Console::*, UI::WindowsAndMessaging::*};
@@ -10,7 +16,7 @@ pub mod conscon {
     impl ConsoleController {
         pub unsafe fn new() -> Self {
             let con_window = GetConsoleWindow();
-            if !con_window.is_null() {
+            if con_window.0 != 0 {
                 ShowWindow(con_window, SW_SHOW);
             }
 
@@ -21,7 +27,7 @@ pub mod conscon {
     impl Drop for ConsoleController {
         fn drop(&mut self) {
             unsafe {
-                if !self.con_window.is_null() {
+                if self.con_window.0 != 0 {
                     ShowWindow(self.con_window, SW_HIDE);
                 }
             }
@@ -277,7 +283,7 @@ pub mod logging {
 
         let stderr = ConsoleAppender::builder()
             .encoder(Box::new(PatternEncoder::new(
-                "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
+                "[{d(%Y-%m-%d %H:%M:%S %Z)} {l} {M}] {m}{n}",
             )))
             .target(Target::Stderr)
             .build();
@@ -288,7 +294,7 @@ pub mod logging {
 
         let tmpfile_appender = FileAppender::builder()
             .encoder(Box::new(PatternEncoder::new(
-                "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
+                "[{d(%Y-%m-%d %H:%M:%S %Z)} {l} {M}] {m}{n}",
             )))
             .build(TMPLOGFILENAME)?;
 
@@ -318,20 +324,20 @@ pub mod logging {
         let log_level = config.rust_log.clone();
         let stderr = ConsoleAppender::builder()
             .encoder(Box::new(PatternEncoder::new(
-                "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
+                "[{d(%Y-%m-%d %H:%M:%S %Z)} {l} {M}] {m}{n}",
             )))
             .target(Target::Stderr)
             .build();
 
         let tmpfile_appender = FileAppender::builder()
             .encoder(Box::new(PatternEncoder::new(
-                "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
+                "[{d(%Y-%m-%d %H:%M:%S %Z)} {l} {M}] {m}{n}",
             )))
             .build(TMPLOGFILENAME)?;
 
         let file_appender = FileAppender::builder()
             .encoder(Box::new(PatternEncoder::new(
-                "[{d(%Y-%m-%d %H:%M:%S %Z)(utc)} {l} {M}] {m}{n}",
+                "[{d(%Y-%m-%d %H:%M:%S %Z)} {l} {M}] {m}{n}",
             )))
             .build(&logfile_path)?;
 
@@ -353,26 +359,89 @@ pub mod logging {
     }
 }
 
-/*
-pub mod util {
-    pub struct Finally {
-        func: Option<Box<dyn FnOnce()>>,
+pub mod ncsync_daemon {
+    use anyhow::Result;
+    use log::*;
+    use ncs::local_listen::*;
+    use ncs::messaging::*;
+    use ncs::meta::LocalInfo;
+    use ncs::*;
+    use std::fs;
+    use std::path::*;
+    use tokio::sync::mpsc::*;
+
+    pub async fn forge_event(
+        NCSyncMessage {
+            kind,
+            is_recursive,
+            target,
+        }: NCSyncMessage,
+        tx: &Sender<Command>,
+        local_info: &LocalInfo,
+    ) -> Result<()> {
+        let target_path = Path::new(&target);
+
+        if !target_path.exists() {
+            debug!("[ncsync] {:?} is not found.", target_path);
+            return Ok(());
+        }
+
+        if !target_path.starts_with(&local_info.root_path_cano) {
+            debug!("[ncsync] {:?} is not a managed entity.", target_path);
+            return Ok(());
+        }
+
+        match kind {
+            NCSyncKind::Push => {
+                push(target_path, tx, true, is_recursive, local_info).await?;
+            }
+            NCSyncKind::Pull => info!("[ncsync] Pull {:?}", target_path),
+        }
+
+        Ok(())
     }
 
-    impl Finally {
-        pub fn new(func: Box<dyn FnOnce()>) -> Self {
-            Self {
-                func: Some(Box::new(func)),
-            }
-        }
-    }
+    #[async_recursion]
+    async fn push(
+        target: &Path,
+        tx: &Sender<Command>,
+        top: bool,
+        is_recursive: bool,
+        local_info: &LocalInfo,
+    ) -> Result<()> {
+        let mut res = Ok(());
+        let managed_path = target
+            .strip_prefix(&local_info.root_path_cano)?
+            .to_path_buf();
 
-    impl Drop for Finally {
-        fn drop(&mut self) {
-            if let Some(f) = self.func.take() {
-                (f)();
-            }
+        if !local_info.exc_checker.judge(&managed_path) {
+            debug!("[ncsync] Push {:?} : Exclude File.", managed_path);
+            return Ok(());
         }
+
+        if target.is_dir() {
+            if top || is_recursive {
+                for entry in fs::read_dir(target)? {
+                    if_chain! {
+                        if let Ok(entry) = entry;
+                        let path = entry.path();
+                        if let Ok(path) = path.canonicalize();
+                        if path.starts_with(&local_info.root_path_cano);
+                        then {
+                            let r = push(&path, tx, false, is_recursive, local_info).await;
+                            if let Err(r) = r {
+                                res = Err(r);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            info!("[ncsync] Push {:?}", managed_path);
+            tx.send(Command::LocEvent(LocalEvent::Modify(managed_path)))
+                .await?;
+        }
+
+        res
     }
 }
-*/

@@ -6,9 +6,9 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ncs = { git = "https://github.com/anotherhollow1125/next-client", rev = "e2cc099a2185d6669b5694563ed8e65d5462c976" }
+ncs = { git = "https://github.com/anotherhollow1125/next-client", rev = "5d2e00ccc964f42f0e35a3a818838d7da5dd22d7" }
 bindings = { path = "bindings" }
-windows = "0.19.0"
+windows = "0.21.1"
 anyhow = "1.0.43"
 dotenv = "0.15.0"
 log4rs = "1.0.0"
@@ -22,6 +22,7 @@ reqwest = "0.11.4"
 fs_extra = "1.2.0"
 regex = "1.5.4"
 once_cell = "1.8.0"
+async-recursion = "0.3.2"
 
 [build-dependencies]
 embed-resource = "1.6.3"

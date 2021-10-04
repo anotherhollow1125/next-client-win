@@ -7,7 +7,6 @@ fn main() {
                 LibraryLoader::{
                     GetModuleHandleA,
                 },
-                Console::*,
                 DataExchange::*,
             },
         },
