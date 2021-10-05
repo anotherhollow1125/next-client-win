@@ -329,6 +329,37 @@ Please fix conf.ini and connect to the Internet."
                     error!("It should be unreachable branch. something wrong.");
                 }
             },
+            Command::PullEvent {
+                target,
+                is_recursive,
+                stash,
+            } => {
+                icon_tx.send(IconChange::Load).ok();
+                info!(
+                    "PullEvent({:?}, -r: {:?}, -s: {:?})",
+                    target, is_recursive, stash
+                );
+                let pr_ref = public_resource.lock().map_err(|_| LockError)?;
+
+                let res = nc_listen::refresh(
+                    target,
+                    is_recursive,
+                    &pr_ref.root,
+                    &nc_info,
+                    &local_info,
+                    &mut nc2l_cancel_map,
+                    stash,
+                )
+                .await;
+
+                if let Err(e) = res {
+                    error!("PULL {:?}", e);
+                    // icon_tx.send(IconChange::Error).ok();
+                    // current_icon = IconChange::Error;
+                    continue;
+                }
+                icon_tx.send(current_icon).ok();
+            }
             Command::UpdateExcFile => {
                 icon_tx.send(IconChange::Load).ok();
                 info!("Update Exclude targets file.");

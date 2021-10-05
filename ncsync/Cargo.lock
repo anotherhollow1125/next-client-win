@@ -898,7 +898,7 @@ dependencies = [
 [[package]]
 name = "ncs"
 version = "0.1.0"
-source = "git+https://github.com/anotherhollow1125/next-client?rev=a69d945fd1681f777c7440acb39b08d6ed130bb3#a69d945fd1681f777c7440acb39b08d6ed130bb3"
+source = "git+https://github.com/anotherhollow1125/next-client?rev=8bc62b85d4cb53c14bacf527b1433d7b9b5d44b1#8bc62b85d4cb53c14bacf527b1433d7b9b5d44b1"
 dependencies = [
  "anyhow",
  "async-recursion",

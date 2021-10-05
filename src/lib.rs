@@ -374,6 +374,7 @@ pub mod ncsync_daemon {
         NCSyncMessage {
             kind,
             is_recursive,
+            use_stash,
             target,
         }: NCSyncMessage,
         tx: &Sender<Command>,
@@ -395,7 +396,15 @@ pub mod ncsync_daemon {
             NCSyncKind::Push => {
                 push(target_path, tx, true, is_recursive, local_info).await?;
             }
-            NCSyncKind::Pull => info!("[ncsync] Pull {:?}", target_path),
+            NCSyncKind::Pull => {
+                info!("[ncsync] Pull {:?}", target_path);
+                tx.send(Command::PullEvent {
+                    target: target_path.to_path_buf(),
+                    is_recursive,
+                    stash: use_stash,
+                })
+                .await?;
+            }
         }
 
         Ok(())
