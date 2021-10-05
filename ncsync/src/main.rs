@@ -10,10 +10,7 @@ use structopt::StructOpt;
 
 use ncs::messaging::{NCSyncKind, NCSyncMessage};
 use std::convert::Into;
-use std::env;
-use std::fs;
-use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[macro_use]
 extern crate if_chain;
@@ -49,30 +46,9 @@ enum Command {
         /// using stash to save local files
         stash: bool,
     },
-    #[structopt(name = "gitzip")]
-    GitZip,
-    #[structopt(name = "gitunzip")]
-    GitUnzip,
 }
 
-// MessageCommandが出来てしまった経緯
-// もともとimpl Into<Vec<NCSyncMessage>> for Commandだったが、
-// GitZipコマンドなどを追加することになり結果的に分けることとなった。
-// 冗長なのは認める...直すのめんどい
-#[derive(Debug)]
-enum MessageCommand {
-    Push {
-        paths: Vec<PathBuf>,
-        recursive: bool,
-    },
-    Pull {
-        paths: Vec<PathBuf>,
-        recursive: bool,
-        stash: bool,
-    },
-}
-
-impl Into<Vec<NCSyncMessage>> for MessageCommand {
+impl Into<Vec<NCSyncMessage>> for Command {
     fn into(self) -> Vec<NCSyncMessage> {
         let kind: NCSyncKind;
         let pths: Vec<PathBuf>;
@@ -105,7 +81,6 @@ impl Into<Vec<NCSyncMessage>> for MessageCommand {
                         if let Ok(p) = p;
                         if let Ok(p) = p.canonicalize();
                         then {
-                            println!("{:?}", p);
                             let m = NCSyncMessage {
                                 kind,
                                 is_recursive,
@@ -126,29 +101,9 @@ fn main() -> CliResult {
     let args = NCSync::from_args();
     args.verbose.setup_env_logger("ncsync")?;
 
-    match args.command {
-        Command::Push { paths, recursive } => {
-            let m = MessageCommand::Push { paths, recursive };
-            unsafe {
-                send_messages(m.into())?;
-            }
-        }
-        Command::Pull {
-            paths,
-            recursive,
-            stash,
-        } => {
-            let m = MessageCommand::Pull {
-                paths,
-                recursive,
-                stash,
-            };
-            unsafe {
-                send_messages(m.into())?;
-            }
-        }
-        Command::GitZip => gitzip()?,
-        Command::GitUnzip => gitunzip()?,
+    let messages: Vec<NCSyncMessage> = args.command.into();
+    unsafe {
+        send_messages(messages)?;
     }
 
     Ok(())
@@ -162,11 +117,7 @@ unsafe fn send_messages(messages: Vec<NCSyncMessage>) -> CliResult {
         return Err(failure::err_msg("Can't find next-client app!").into());
     }
 
-    println!("{}", target_hwnd.0);
-
     for message in messages {
-        println!("Send Message: {:?}", message);
-
         let mut v: Vec<u8> = message.into();
         let p = v.as_mut_slice();
         let p_size = p.len() * size_of::<u8>();
@@ -183,90 +134,6 @@ unsafe fn send_messages(messages: Vec<NCSyncMessage>) -> CliResult {
             WPARAM(0),
             LPARAM((&mut cds as *mut _) as isize),
         );
-    }
-
-    Ok(())
-}
-
-fn gitzip() -> CliResult {
-    let git_str = "./.git";
-    let git_path = Path::new(git_str);
-    let gitignore_path = Path::new("./.gitignore");
-
-    if !git_path.exists() {
-        return Err(failure::err_msg("There are no git repository").into());
-    }
-
-    let curdir = env::current_dir()?;
-    let curdir_name = curdir.file_name().unwrap().to_string_lossy();
-    let dest = format!("{}_git.zip", curdir_name);
-
-    if !gitignore_path.exists() {
-        let _ = fs::File::create(gitignore_path)?;
-    }
-
-    let mut already_written = false;
-    {
-        let f = fs::File::open(gitignore_path)?;
-        for line in io::BufReader::new(f).lines() {
-            let line = line?;
-            if line.contains(&dest) {
-                already_written = true;
-            }
-        }
-    }
-
-    if !already_written {
-        let mut f = fs::OpenOptions::new().write(true).open(gitignore_path)?;
-        writeln!(f, "{}", dest)?;
-    }
-
-    match env::consts::OS {
-        "windows" => {
-            println!("windows");
-            std::process::Command::new("powershell.exe")
-                .args(["-c", "Compress-Archive"])
-                .args(["-Path", git_str])
-                .args(["-DestinationPath", &dest])
-                .arg("-Force")
-                .spawn()?;
-        }
-        "linux" => {
-            println!("linux");
-            std::process::Command::new("zip")
-                .arg("-r")
-                .arg(&dest)
-                .arg(git_str)
-                .spawn()?;
-        }
-        _ => (),
-    }
-
-    Ok(())
-}
-
-fn gitunzip() -> CliResult {
-    let target = format!("{}_git.zip", env::current_dir()?.to_string_lossy());
-
-    if !Path::new(&target).exists() {
-        return Err(failure::err_msg("target not found.").into());
-    }
-
-    match env::consts::OS {
-        "windows" => {
-            println!("windows");
-            std::process::Command::new("powershell.exe")
-                .args(["-c", "Expand-Archive"])
-                .args(["-Path", &target])
-                .args(["-DestinationPath", "."])
-                .arg("-Force")
-                .spawn()?;
-        }
-        "linux" => {
-            println!("linux");
-            std::process::Command::new("unzip").arg(&target).spawn()?;
-        }
-        _ => (),
     }
 
     Ok(())

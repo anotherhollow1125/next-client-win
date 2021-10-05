@@ -18,11 +18,16 @@ jobs:
         with:
           rust-version: stable
       - uses: actions/checkout@master
-      - name: Build for Windows
+      - name: Build NC Sync
+        run: cargo build --release
+        working-directory: ./ncsync
+      - name: Build NC Client
         run: |
           cargo build
           mv target/debug/next_client_win.exe .
-          7z a next-client-win-${{ steps.variables.outputs.version }}.zip next_client_win.exe README.md LICENSE-MIT
+          mv ncsync/target/release/ncsync.exe .
+          7z a next-client-win-${{ steps.variables.outputs.version }}.zip next_client_win.exe README.md LICENSE-MIT ncsync.exe
+        working-directory: .
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
