@@ -164,6 +164,7 @@ Please fix conf.ini and connect to the Internet."
     let nci = nc_info.clone();
     let lci = local_info.clone();
     let _nclisten_handle = tokio::spawn(async move {
+        sleep(Duration::from_secs(3)).await;
         let res = nclistening(tx.clone(), &nci, &lci, nc_state.clone()).await;
         if let Err(e) = res {
             error_send!(tx, e);
@@ -173,6 +174,7 @@ Please fix conf.ini and connect to the Internet."
     let tx = com_tx.clone();
     let lci = local_info.clone();
     let _control_handle = tokio::spawn(async move {
+        sleep(Duration::from_secs(3)).await;
         use tokio_mpsc::error::TryRecvError::*;
         // このループはmpsc::...::Empty, ExcEditとNop以外はcontinueしないので落ちます！！
         loop {
@@ -226,6 +228,7 @@ Please fix conf.ini and connect to the Internet."
     let tx = com_tx.clone();
     let lci = local_info.clone();
     let _ncsyncmes_handle = tokio::spawn(async move {
+        sleep(Duration::from_secs(3)).await;
         use tokio_mpsc::error::TryRecvError::*;
         loop {
             let r = {
