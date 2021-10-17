@@ -494,8 +494,20 @@ Please fix conf.ini and connect to the Internet."
     retry
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+use tokio::runtime;
+
+fn main() -> Result<()> {
+    let rt = runtime::Builder::new_multi_thread()
+        .enable_all()
+        .worker_threads(7)
+        .build()?;
+
+    rt.block_on(async { async_main().await })?;
+
+    Ok(())
+}
+
+async fn async_main() -> Result<()> {
     let mut config = unsafe { config::prepare_config_file()? };
     let log_handle = logging::prepare_logging_without_logfile(&config)?;
 
