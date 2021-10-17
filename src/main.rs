@@ -34,16 +34,16 @@ macro_rules! error_send {
 }
 
 async fn run(
-    tray_tx: std_mpsc::Sender<TasktrayMessage>,
-    tray_rx: Arc<Mutex<std_mpsc::Receiver<TasktrayMessage>>>,
-    ncsyncmes_tx: std_mpsc::Sender<Option<NCSyncMessage>>,
-    ncsyncmes_rx: Arc<Mutex<std_mpsc::Receiver<Option<NCSyncMessage>>>>,
-    icon_tx: std_mpsc::Sender<IconChange>,
+    tray_tx: tokio_mpsc::Sender<TasktrayMessage>,
+    tray_rx: Arc<Mutex<tokio_mpsc::Receiver<TasktrayMessage>>>,
+    ncsyncmes_tx: tokio_mpsc::Sender<Option<NCSyncMessage>>,
+    ncsyncmes_rx: Arc<Mutex<tokio_mpsc::Receiver<Option<NCSyncMessage>>>>,
+    icon_tx: tokio_mpsc::Sender<IconChange>,
     log_handle: &log4rs::Handle,
     _debug_counter: u32,
     config: &config::Config,
 ) -> Result<bool> {
-    icon_tx.send(IconChange::Load).ok();
+    icon_tx.send(IconChange::Load).await.ok();
 
     match config.validation().await? {
         config::ValidateResult::Ok => (),
@@ -173,12 +173,13 @@ Please fix conf.ini and connect to the Internet."
     let tx = com_tx.clone();
     let lci = local_info.clone();
     let _control_handle = tokio::spawn(async move {
-        // このループはExcEditとNop以外はcontinueしないので落ちます！！
+        use tokio_mpsc::error::TryRecvError::*;
+        // このループはmpsc::...::Empty, ExcEditとNop以外はcontinueしないので落ちます！！
         loop {
             let r = {
                 let res = tray_rx.lock();
                 match res {
-                    Ok(rx) => Some(rx.recv()),
+                    Ok(mut rx) => Some(rx.try_recv()),
                     Err(_) => None,
                 }
             };
@@ -207,8 +208,9 @@ Please fix conf.ini and connect to the Internet."
                         return;
                     }
                 }
-                Some(Err(e)) => {
-                    error_send!(tx, e.into());
+                Some(Err(Empty)) => continue,
+                Some(Err(Disconnected)) => {
+                    // error_send!(tx, e.into());
                     return;
                 }
                 _ => {
@@ -224,11 +226,12 @@ Please fix conf.ini and connect to the Internet."
     let tx = com_tx.clone();
     let lci = local_info.clone();
     let _ncsyncmes_handle = tokio::spawn(async move {
+        use tokio_mpsc::error::TryRecvError::*;
         loop {
             let r = {
                 let res = ncsyncmes_rx.lock();
                 match res {
-                    Ok(rx) => Some(rx.recv()),
+                    Ok(mut rx) => Some(rx.try_recv()),
                     Err(_) => None,
                 }
             };
@@ -248,8 +251,9 @@ Please fix conf.ini and connect to the Internet."
                     }
                 }
                 Some(Ok(None)) => break,
-                Some(Err(e)) => {
-                    error_send!(tx, e.into());
+                Some(Err(Empty)) => continue,
+                Some(Err(Disconnected)) => {
+                    // error_send!(tx, e.into());
                     return;
                 }
                 _ => {
@@ -266,13 +270,13 @@ Please fix conf.ini and connect to the Internet."
     let mut offline_locevent_que: Vec<local_listen::LocalEvent> = Vec::new();
     let mut retry = Ok(false);
     let mut current_icon = IconChange::Normal;
-    icon_tx.send(IconChange::Normal).ok();
+    icon_tx.send(IconChange::Normal).await.ok();
     info!("Main Loop Start");
     while let Some(e) = com_rx.recv().await {
         match e {
             Command::LocEvent(ev) => match network_status {
                 NetworkStatus::Connect => {
-                    icon_tx.send(IconChange::Load).ok();
+                    icon_tx.send(IconChange::Load).await.ok();
                     let pr_ref = public_resource.lock().map_err(|_| LockError)?;
                     let res = deal_local_event(
                         ev,
@@ -285,11 +289,11 @@ Please fix conf.ini and connect to the Internet."
                     .await;
                     if let Err(e) = res {
                         error!("L {:?}", e);
-                        icon_tx.send(IconChange::Error).ok();
+                        icon_tx.send(IconChange::Error).await.ok();
                         current_icon = IconChange::Error;
                         continue;
                     }
-                    icon_tx.send(current_icon).ok();
+                    icon_tx.send(current_icon).await.ok();
                 }
                 NetworkStatus::Disconnect | NetworkStatus::Err(_) => {
                     info!("LocEvent({:?}) @ offline", ev);
@@ -298,7 +302,7 @@ Please fix conf.ini and connect to the Internet."
             },
             Command::NCEvents(ev_vec, new_state) => match network_status {
                 NetworkStatus::Connect => {
-                    icon_tx.send(IconChange::Load).ok();
+                    icon_tx.send(IconChange::Load).await.ok();
                     info!("NCEvents({:?})", new_state);
                     let mut pr_ref = public_resource.lock().map_err(|_| LockError)?;
 
@@ -319,11 +323,11 @@ Please fix conf.ini and connect to the Internet."
                     .await;
                     if let Err(e) = res {
                         error!("NC {:?}", e);
-                        icon_tx.send(IconChange::Error).ok();
+                        icon_tx.send(IconChange::Error).await.ok();
                         current_icon = IconChange::Error;
                         continue;
                     }
-                    icon_tx.send(current_icon).ok();
+                    icon_tx.send(current_icon).await.ok();
                 }
                 NetworkStatus::Disconnect | NetworkStatus::Err(_) => {
                     error!("It should be unreachable branch. something wrong.");
@@ -334,7 +338,7 @@ Please fix conf.ini and connect to the Internet."
                 is_recursive,
                 stash,
             } => {
-                icon_tx.send(IconChange::Load).ok();
+                icon_tx.send(IconChange::Load).await.ok();
                 info!(
                     "PullEvent({:?}, -r: {:?}, -s: {:?})",
                     target, is_recursive, stash
@@ -358,24 +362,24 @@ Please fix conf.ini and connect to the Internet."
                     // current_icon = IconChange::Error;
                     continue;
                 }
-                icon_tx.send(current_icon).ok();
+                icon_tx.send(current_icon).await.ok();
             }
             Command::UpdateExcFile => {
-                icon_tx.send(IconChange::Load).ok();
+                icon_tx.send(IconChange::Load).await.ok();
                 info!("Update Exclude targets file.");
                 info!("Rebooting...");
                 retry = Ok(true);
                 break;
             }
             Command::UpdateConfigFile => {
-                icon_tx.send(IconChange::Load).ok();
+                icon_tx.send(IconChange::Load).await.ok();
                 info!("Update Config file.");
                 info!("Rebooting...");
                 retry = Ok(true);
                 break;
             }
             Command::HardRepair => {
-                icon_tx.send(IconChange::Load).ok();
+                icon_tx.send(IconChange::Load).await.ok();
                 info!("Hard Repair Start.");
                 drop(root_watcher);
                 drop(meta_watcher);
@@ -393,7 +397,7 @@ Please fix conf.ini and connect to the Internet."
                 return Ok(true);
             }
             Command::NormalRepair => {
-                icon_tx.send(IconChange::Load).ok();
+                icon_tx.send(IconChange::Load).await.ok();
                 info!("Normal Repair Start");
                 let events = {
                     let mut pr_ref = public_resource.lock().map_err(|_| LockError)?;
@@ -409,7 +413,7 @@ Please fix conf.ini and connect to the Internet."
                 NetworkStatus::Connect => (),
                 _ => {
                     info!("Network Connection Restored.");
-                    icon_tx.send(IconChange::Load).ok();
+                    icon_tx.send(IconChange::Load).await.ok();
                     // Reconnect situation
                     let have_to_rerun = repair::soft_repair(
                         &local_info,
@@ -422,12 +426,12 @@ Please fix conf.ini and connect to the Internet."
                     )
                     .await?;
                     if have_to_rerun {
-                        icon_tx.send(IconChange::Load).ok();
+                        icon_tx.send(IconChange::Load).await.ok();
                         retry = Ok(true);
                         break;
                     } else {
                         network_status = NetworkStatus::Connect;
-                        icon_tx.send(IconChange::Normal).ok();
+                        icon_tx.send(IconChange::Normal).await.ok();
                         retry = Ok(false);
                     }
                 }
@@ -435,7 +439,7 @@ Please fix conf.ini and connect to the Internet."
             Command::NetworkDisconnect => match network_status {
                 NetworkStatus::Connect => {
                     info!("Lost Network Connection.");
-                    icon_tx.send(IconChange::Offline).ok();
+                    icon_tx.send(IconChange::Offline).await.ok();
                     // disconnect situation
                     nc2l_cancel_map = HashMap::new();
                     l2nc_cancel_set = HashSet::new();
@@ -444,7 +448,7 @@ Please fix conf.ini and connect to the Internet."
                 _ => (),
             },
             Command::Terminate(r) => {
-                icon_tx.send(IconChange::Load).ok();
+                icon_tx.send(IconChange::Load).await.ok();
                 retry = Ok(r);
                 break;
             }
@@ -495,16 +499,16 @@ async fn main() -> Result<()> {
     let mut config = unsafe { config::prepare_config_file()? };
     let log_handle = logging::prepare_logging_without_logfile(&config)?;
 
-    let (tray_tx, tray_rx) = std_mpsc::channel();
-    let (emergency_tx, emergency_rx) = std_mpsc::channel();
-    let (ncsyncmes_tx, ncsyncmes_rx) = std_mpsc::channel();
+    let (tray_tx, tray_rx) = tokio_mpsc::channel(128);
+    let (emergency_tx, mut emergency_rx) = tokio_mpsc::channel(128);
+    let (ncsyncmes_tx, ncsyncmes_rx) = tokio_mpsc::channel(32);
 
     unsafe {
         P_TX = Some(tray_tx.clone());
         P_EMERGENCY_TX = Some(emergency_tx.clone());
         P_NCSYNCMES_TX = Some(ncsyncmes_tx.clone());
 
-        let (icon_tx, icon_rx) = std_mpsc::channel();
+        let (icon_tx, icon_rx) = tokio_mpsc::channel(128);
         let tasktray_handle = std::thread::spawn(|| {
             let res = tasktray(icon_rx);
             if let Err(e) = res {
@@ -533,11 +537,11 @@ async fn main() -> Result<()> {
                 Ok(false) => break,
                 Err(e) => {
                     error!("# {}", e);
-                    icon_tx.send(IconChange::Error).ok();
-                    match emergency_rx.recv() {
-                        Ok(false) | Err(_) => break,
+                    icon_tx.send(IconChange::Error).await.ok();
+                    match emergency_rx.recv().await {
+                        Some(false) | None => break,
                         _ => {
-                            if let Ok(rx) = tray_rx.lock() {
+                            if let Ok(mut rx) = tray_rx.lock() {
                                 // to consume TasktrayMessage::Restart
                                 while let Ok(v) = rx.try_recv() {
                                     debug!("v: {:?}", v);
@@ -555,7 +559,7 @@ async fn main() -> Result<()> {
         drop(tray_rx);
         drop(emergency_rx);
 
-        icon_tx.send(IconChange::Terminate).ok();
+        icon_tx.send(IconChange::Terminate).await.ok();
 
         let _ = tasktray_handle.join();
     }
@@ -600,9 +604,9 @@ static mut P_NID_LOAD: *mut NOTIFYICONDATAW = ptr::null_mut();
 static mut P_NID_ERROR: *mut NOTIFYICONDATAW = ptr::null_mut();
 static mut P_NID_OFFLINE: *mut NOTIFYICONDATAW = ptr::null_mut();
 static mut P_HMENU: *mut HMENU = ptr::null_mut();
-static mut P_TX: Option<std_mpsc::Sender<TasktrayMessage>> = None;
-static mut P_EMERGENCY_TX: Option<std_mpsc::Sender<bool>> = None;
-static mut P_NCSYNCMES_TX: Option<std_mpsc::Sender<Option<NCSyncMessage>>> = None;
+static mut P_TX: Option<tokio_mpsc::Sender<TasktrayMessage>> = None;
+static mut P_EMERGENCY_TX: Option<tokio_mpsc::Sender<bool>> = None;
+static mut P_NCSYNCMES_TX: Option<tokio_mpsc::Sender<Option<NCSyncMessage>>> = None;
 
 #[derive(Debug)]
 enum TasktrayMessage {
@@ -632,7 +636,7 @@ fn encodeu8(source: &str) -> Vec<u8> {
 }
 */
 
-unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
+unsafe fn tasktray(mut icon_rx: tokio_mpsc::Receiver<IconChange>) -> Result<()> {
     let con_window = GetConsoleWindow();
     if con_window.0 != 0 {
         ShowWindow(con_window, SW_HIDE);
@@ -697,20 +701,20 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
     let mut message = MSG::default();
 
     std::thread::spawn(move || loop {
-        match icon_rx.recv() {
-            Ok(IconChange::Normal) => {
+        match icon_rx.blocking_recv() {
+            Some(IconChange::Normal) => {
                 P_NID = P_NID_NORMAL;
                 Shell_NotifyIconW(NIM_MODIFY, P_NID);
             }
-            Ok(IconChange::Load) => {
+            Some(IconChange::Load) => {
                 P_NID = P_NID_LOAD;
                 Shell_NotifyIconW(NIM_MODIFY, P_NID);
             }
-            Ok(IconChange::Error) => {
+            Some(IconChange::Error) => {
                 P_NID = P_NID_ERROR;
                 Shell_NotifyIconW(NIM_MODIFY, P_NID);
             }
-            Ok(IconChange::Offline) => {
+            Some(IconChange::Offline) => {
                 P_NID = P_NID_OFFLINE;
                 Shell_NotifyIconW(NIM_MODIFY, P_NID);
             }
@@ -723,7 +727,7 @@ unsafe fn tasktray(icon_rx: std_mpsc::Receiver<IconChange>) -> Result<()> {
 
         if_chain! {
             if let Some(tx) = P_TX.as_ref();
-            if let Err(_) = tx.send(TasktrayMessage::Nop);
+            if let Err(_) = tx.blocking_send(TasktrayMessage::Nop);
             then {
                 break;
             }
@@ -786,10 +790,10 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
             }
             WM_CLOSE | WM_DESTROY | WM_QUERYENDSESSION => {
                 if let Some(tx) = P_TX.as_ref() {
-                    tx.send(TasktrayMessage::Exit).ok();
+                    tx.blocking_send(TasktrayMessage::Exit).ok();
                 }
                 if let Some(tx) = P_NCSYNCMES_TX.as_ref() {
-                    tx.send(None).ok();
+                    tx.blocking_send(None).ok();
                 }
                 PostQuitMessage(0);
                 LRESULT(0)
@@ -807,35 +811,35 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                     (MSGID_EDITEXCLUDE, _) => {
                         debug!("TASKTRAY EDITEXCLUDE");
                         if let Some(tx) = P_TX.as_ref() {
-                            tx.send(TasktrayMessage::ExcEdit).ok();
+                            tx.blocking_send(TasktrayMessage::ExcEdit).ok();
                         }
                     }
                     (MSGID_REPAIR, _) => {
                         debug!("TASKTRAY REPAIR");
                         if let Some(tx) = P_TX.as_ref() {
-                            tx.send(TasktrayMessage::Repair).ok();
+                            tx.blocking_send(TasktrayMessage::Repair).ok();
                         }
                     }
                     (MSGID_RESTART, _) => {
                         debug!("TASKTRAY RESTART");
                         if let Some(tx) = P_TX.as_ref() {
-                            tx.send(TasktrayMessage::Restart).ok();
+                            tx.blocking_send(TasktrayMessage::Restart).ok();
 
                             if let Some(etx) = P_EMERGENCY_TX.as_ref() {
-                                etx.send(true).ok();
+                                etx.blocking_send(true).ok();
                             }
                         }
                     }
                     (MSGID_EXIT, _) => {
                         debug!("TASKTRAY EXIT");
                         if let Some(tx) = P_TX.as_ref() {
-                            tx.send(TasktrayMessage::Exit).ok();
+                            tx.blocking_send(TasktrayMessage::Exit).ok();
 
                             if let Some(tx) = P_NCSYNCMES_TX.as_ref() {
-                                tx.send(None).ok();
+                                tx.blocking_send(None).ok();
                             }
                             if let Some(etx) = P_EMERGENCY_TX.as_ref() {
-                                etx.send(false).ok();
+                                etx.blocking_send(false).ok();
                             }
 
                             PostQuitMessage(0);
@@ -853,7 +857,7 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                 if let Ok(mes) = mes {
                     debug!("Get Message: {:?}", mes);
                     if let Some(tx) = P_NCSYNCMES_TX.as_ref() {
-                        tx.send(Some(mes)).ok();
+                        tx.blocking_send(Some(mes)).ok();
                     }
                 }
 
