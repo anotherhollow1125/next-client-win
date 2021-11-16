@@ -1,10 +1,5 @@
 // #![cfg_attr(debug_assertions, windows_subsystem = "windows")]
 use anyhow::Result;
-use bindings::Windows::Win32::{
-    Foundation::*,
-    System::{Console::*, DataExchange::COPYDATASTRUCT, LibraryLoader::GetModuleHandleA},
-    UI::{Shell::*, WindowsAndMessaging::*},
-};
 use log::{debug, error, info, warn};
 use ncs::errors::NcsError::*;
 use ncs::local_listen::*;
@@ -22,6 +17,11 @@ use std::time::Duration as StdDuration;
 use tokio::sync::mpsc as tokio_mpsc;
 #[allow(unused)]
 use tokio::time::{sleep, Duration};
+use windows::Win32::{
+    Foundation::*,
+    System::{Console::*, DataExchange::COPYDATASTRUCT, LibraryLoader::GetModuleHandleA},
+    UI::{Shell::*, WindowsAndMessaging::*},
+};
 #[macro_use]
 extern crate if_chain;
 
@@ -610,6 +610,7 @@ const MSGID_SHOWLOG: u32 = 40001;
 const MSGID_EDITCONF: u32 = 40002;
 const MSGID_EDITEXCLUDE: u32 = 40003;
 const MSGID_REPAIR: u32 = 40004;
+const MSGID_VERSION: u32 = 40005;
 const MSGID_RESTART: u32 = 40009;
 const MSGID_EXIT: u32 = 40010;
 
@@ -710,7 +711,21 @@ unsafe fn tasktray(mut icon_rx: tokio_mpsc::Receiver<IconChange>) -> Result<()> 
     let tmp = LoadMenuW(instance, "ID_NC_CONTROL");
     P_HMENU = &mut GetSubMenu(tmp, 0);
 
-    Shell_NotifyIconW(NIM_ADD, P_NID);
+    let mut register_result = Shell_NotifyIconW(NIM_ADD, P_NID).as_bool();
+
+    if !register_result && GetLastError() == ERROR_TIMEOUT {
+        std::thread::sleep(Duration::from_millis(2000));
+
+        while !register_result {
+            if Shell_NotifyIconW(NIM_MODIFY, P_NID).as_bool() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(2000));
+
+            register_result = Shell_NotifyIconW(NIM_ADD, P_NID).as_bool();
+        }
+    }
+
     ShowWindow(hwnd, SW_HIDE);
 
     let mut message = MSG::default();
@@ -844,6 +859,15 @@ extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: L
                                 etx.blocking_send(true).ok();
                             }
                         }
+                    }
+                    (MSGID_VERSION, _) => {
+                        debug!("TASKTRAY VERSION");
+                        MessageBoxA(
+                            None,
+                            env!("CARGO_PKG_VERSION"),
+                            "Next Client Version",
+                            MB_OK,
+                        );
                     }
                     (MSGID_EXIT, _) => {
                         debug!("TASKTRAY EXIT");

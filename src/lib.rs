@@ -8,7 +8,7 @@ extern crate anyhow;
 extern crate if_chain;
 
 pub mod conscon {
-    use bindings::Windows::Win32::{Foundation::*, System::Console::*, UI::WindowsAndMessaging::*};
+    use windows::Win32::{Foundation::*, System::Console::*, UI::WindowsAndMessaging::*};
     pub struct ConsoleController {
         con_window: HWND,
     }
@@ -382,11 +382,6 @@ pub mod ncsync_daemon {
     ) -> Result<()> {
         let target_path = Path::new(&target);
 
-        if !target_path.exists() {
-            debug!("[ncsync] {:?} is not found.", target_path);
-            return Ok(());
-        }
-
         if !target_path.starts_with(&local_info.root_path_cano) {
             debug!("[ncsync] {:?} is not a managed entity.", target_path);
             return Ok(());
@@ -418,6 +413,11 @@ pub mod ncsync_daemon {
         is_recursive: bool,
         local_info: &LocalInfo,
     ) -> Result<()> {
+        if !target.exists() {
+            debug!("[ncsync] Push : {:?} is not found.", target);
+            return Ok(());
+        }
+
         let mut res = Ok(());
         let managed_path = target
             .strip_prefix(&local_info.root_path_cano)?

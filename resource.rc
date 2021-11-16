@@ -4,6 +4,7 @@ ID_NC_CONTROL MENU {
         MENUITEM "edit conf.ini" , 40002
         MENUITEM "edit excludes" , 40003
         MENUITEM "repair" , 40004
+        MENUITEM "about next-client" , 40005
         MENUITEM "restart" , 40009
         MENUITEM "exit" , 40010
     }
