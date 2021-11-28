@@ -40,8 +40,9 @@ async fn run(
     ncsyncmes_rx: Arc<Mutex<tokio_mpsc::Receiver<Option<NCSyncMessage>>>>,
     icon_tx: tokio_mpsc::Sender<IconChange>,
     log_handle: &log4rs::Handle,
-    _debug_counter: u32,
+    loop_counter: u32,
     config: &config::Config,
+    repair_boot: bool,
 ) -> Result<bool> {
     icon_tx.send(IconChange::Load).await.ok();
 
@@ -73,7 +74,9 @@ Please fix conf.ini and connect to the Internet."
 
     let local_root_path = config.local_root.clone();
     let client = config.make_client()?;
-    let local_info = LocalInfo::new(local_root_path, client.clone())?;
+    let mut local_info = LocalInfo::new(local_root_path, client.clone())?;
+    local_info.set_autostash_keep_span(config.autostash_keep_span);
+    let local_info = local_info;
 
     let logfile_path = local_info.get_logfile_name();
     logging::prepare_logging(log_handle, logfile_path, config)?;
@@ -128,6 +131,10 @@ Please fix conf.ini and connect to the Internet."
     let ini_rx = Mutex::new(rx);
 
     let (com_tx, mut com_rx) = tokio_mpsc::channel(32);
+
+    if repair_boot && loop_counter == 1 {
+        com_tx.send(Command::NormalRepair).await.ok();
+    }
 
     let tx = com_tx.clone();
     let lci = local_info.clone();
@@ -533,7 +540,11 @@ async fn async_main() -> Result<()> {
 
         let tray_rx = Arc::new(Mutex::new(tray_rx));
         let ncsyncmes_rx = Arc::new(Mutex::new(ncsyncmes_rx));
-        let mut debug_counter = 1;
+        let mut loop_counter = 1;
+        let repair_boot = std::env::args()
+            .nth(1)
+            .map(|arg| &arg == "--repair")
+            .unwrap_or(false);
         loop {
             let cntn_w = run(
                 tray_tx.clone(),
@@ -542,8 +553,9 @@ async fn async_main() -> Result<()> {
                 ncsyncmes_rx.clone(),
                 icon_tx.clone(),
                 &log_handle,
-                debug_counter,
+                loop_counter,
                 &config,
+                repair_boot,
             )
             .await;
 
@@ -569,7 +581,7 @@ async fn async_main() -> Result<()> {
             }
 
             config = config::prepare_config_file()?;
-            debug_counter += 1;
+            loop_counter += 1;
         }
         drop(tray_rx);
         drop(emergency_rx);

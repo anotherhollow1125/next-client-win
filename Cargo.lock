@@ -724,7 +724,7 @@ dependencies = [
 [[package]]
 name = "ncs"
 version = "0.1.0"
-source = "git+https://github.com/anotherhollow1125/next-client?rev=718b0853b20657965bb415f32a1dddd619c12e6e#718b0853b20657965bb415f32a1dddd619c12e6e"
+source = "git+https://github.com/anotherhollow1125/next-client?rev=68ebddc43c23bd36ec10f27b15d07c56786e8a78#68ebddc43c23bd36ec10f27b15d07c56786e8a78"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -760,7 +760,7 @@ dependencies = [
 
 [[package]]
 name = "next_client_win"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "async-recursion",

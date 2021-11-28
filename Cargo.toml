@@ -1,12 +1,13 @@
 [package]
 name = "next_client_win"
-version = "0.1.17"
+version = "0.1.18"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ncs = { git = "https://github.com/anotherhollow1125/next-client", rev = "718b0853b20657965bb415f32a1dddd619c12e6e" }
+ncs = { git = "https://github.com/anotherhollow1125/next-client", rev = "68ebddc43c23bd36ec10f27b15d07c56786e8a78" }
+# ncs = { path = "../ncs" } # for develop
 # bindings = { path = "bindings" }
 anyhow = "1.0.43"
 dotenv = "0.15.0"

@@ -53,6 +53,8 @@ pub mod config {
     use std::sync::Mutex;
     use tokio::sync::mpsc as tokio_mpsc;
 
+    const AUTOSTASH_KEEP_SPAN_DEFAULT: u32 = 7;
+
     pub const CONFFILENAME: &'static str = "conf.ini";
 
     pub fn conffile_exists() -> bool {
@@ -73,6 +75,7 @@ pub mod config {
         pub local_root: String,
         pub rust_log: log::LevelFilter,
         pub proxy: Option<String>,
+        pub autostash_keep_span: u32,
     }
 
     static RE_SSL_CHECK: Lazy<Regex> = Lazy::new(|| Regex::new("^https://.*").unwrap());
@@ -103,6 +106,10 @@ pub mod config {
                 .and_then(|l| log::LevelFilter::from_str(&l).ok())
                 .unwrap_or(log::LevelFilter::Off);
             let proxy = s.get("PROXY").map(ToString::to_string);
+            let autostash_keep_span = s
+                .get("AUTOSTASH_KEEP_SPAN")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(AUTOSTASH_KEEP_SPAN_DEFAULT);
 
             Ok(Self {
                 nc_host,
@@ -111,6 +118,7 @@ pub mod config {
                 local_root,
                 rust_log,
                 proxy,
+                autostash_keep_span,
             })
         }
 
@@ -221,6 +229,7 @@ pub mod config {
             local_root,
             rust_log,
             proxy: None,
+            autostash_keep_span: AUTOSTASH_KEEP_SPAN_DEFAULT,
         };
 
         config.save_conf()?;
